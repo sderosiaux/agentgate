@@ -1,15 +1,33 @@
 import { AgentGateError } from '@agentgate/shared';
 
 export interface NormalizedUrl {
+  /** Lowercased, port dropped, trailing dot removed. For matching, not for dialling. */
   host: string;
+  /**
+   * The logical path: percent-decoded, `.`/`..` collapsed, query and fragment gone.
+   *
+   * This is what policy is decided ON, never what a request is forwarded WITH. The gateway
+   * must proxy the ORIGINAL url and query string — rebuilding a request from this string
+   * would re-encode a path the upstream would then read differently, which is precisely the
+   * gap that lets a decision be made about one path while another one is served.
+   */
   path: string;
   protocol: 'http:' | 'https:';
 }
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
-/** Whitespace and control characters: url parsing strips some of them, matching must not guess. */
-const FORBIDDEN_CHARS = /[\u0000-\u0020\u007f]/;
+/**
+ * Characters that make the raw string and the parsed url disagree about the path.
+ *
+ * Whitespace and control characters because url parsing silently strips them. Backslash
+ * because url parsing reads it as a path separator for http(s): `https://host\evil/repos/a/b`
+ * resolves to `/evil/repos/a/b` upstream, while reading the raw string gives `/repos/a/b` —
+ * a policy decision about a path nobody serves. Refusing beats picking a winner.
+ *
+ * Tested against the raw url and again against the decoded path, so `%5c` is caught too.
+ */
+const FORBIDDEN_CHARS = /[\u0000-\u0020\u007f\\]/;
 
 function invalid(reason: string): never {
   // The raw url can carry credentials, so no part of it is ever echoed back.
@@ -49,7 +67,7 @@ function rawPathOf(raw: string): string {
  */
 export function normalizeUrl(raw: string): NormalizedUrl {
   if (FORBIDDEN_CHARS.test(raw)) {
-    invalid('request url must not contain whitespace or control characters');
+    invalid('request url must not contain whitespace, control characters or a backslash');
   }
 
   let parsed: URL;
@@ -81,7 +99,7 @@ export function normalizeUrl(raw: string): NormalizedUrl {
   }
 
   if (FORBIDDEN_CHARS.test(decoded)) {
-    invalid('request path must not decode to whitespace or control characters');
+    invalid('request path must not decode to whitespace, control characters or a backslash');
   }
 
   const segments: string[] = [];

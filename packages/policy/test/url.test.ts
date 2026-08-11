@@ -116,6 +116,25 @@ describe('normalizeUrl', () => {
     expectRejected('https://api.github.com/repos/acme /payments');
   });
 
+  test('rejects a backslash, which url parsing reads as a path separator', () => {
+    // `new URL` resolves this to /evil/repos/acme/payments; reading the raw string naively
+    // gives /repos/acme/payments, an allowed repo.read on a path the upstream never serves.
+    expectRejected('https://api.github.com\\evil/repos/acme/payments');
+    expect(new URL('https://api.github.com\\evil/repos/acme/payments').pathname).toBe(
+      '/evil/repos/acme/payments',
+    );
+  });
+
+  test('rejects a percent-encoded backslash once it is decoded', () => {
+    expectRejected('https://api.github.com/repos%5c../acme/payments');
+    expectRejected('https://api.github.com/repos%5C..%5Cacme');
+  });
+
+  test('rejects a backslash wherever it sits', () => {
+    expectRejected('https://api.github.com/repos/acme\\payments');
+    expectRejected('https://api.github.com/repos/acme/payments\\');
+  });
+
   test('rejects a decoded path carrying control characters', () => {
     expectRejected('https://api.github.com/repos/acme/payments%00.json');
   });
