@@ -47,7 +47,23 @@ export default async function RootLayout({
   children: ReactNode;
 }): Promise<ReactElement> {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        {/*
+         * Applies the rail's collapsed preference before the first paint.
+         *
+         * The server cannot read localStorage, so without this the rail is always rendered wide
+         * and corrects itself once React hydrates — a visible slide on every page load for
+         * anyone who prefers it collapsed. The attribute drives CSS in `globals.css`; React
+         * state never decides what the rail looks like. `suppressHydrationWarning` above is for
+         * this one attribute, which by design differs between server and client.
+         */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('agentgate.sidebar.collapsed')==='1'){document.documentElement.dataset.sidebar='collapsed'}}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="flex min-h-dvh">
         <Sidebar gatewayHost={gatewayHost()} pendingApprovals={await pendingApprovals()} />
         <main className="min-w-0 flex-1 px-6 py-8 lg:px-10 lg:py-10">

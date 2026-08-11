@@ -131,27 +131,35 @@ export function Sidebar({
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
-  // Read after mount rather than during render: the server has no localStorage, and a rail that
-  // renders wide then snaps narrow is worse than one that settles on the first frame.
+  /*
+   * What the rail looks like is decided by CSS, from an attribute a blocking script in <head>
+   * sets before the first paint (see `globals.css` and `layout.tsx`). This state exists only for
+   * what cannot be expressed in CSS — `aria-expanded` — which is why it is read after mount and
+   * why nothing visual depends on it. React state alone would render wide on the server and slide
+   * narrow after hydration, on every page load, for anyone who prefers it collapsed.
+   */
   useEffect(() => {
-    setCollapsed(window.localStorage.getItem(STORAGE_KEY) === '1');
+    setCollapsed(document.documentElement.dataset.sidebar === 'collapsed');
   }, []);
 
   function toggle(): void {
     setCollapsed((previous) => {
-      window.localStorage.setItem(STORAGE_KEY, previous ? '0' : '1');
+      const next = !previous;
+      window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
+      if (next) {
+        document.documentElement.dataset.sidebar = 'collapsed';
+      } else {
+        delete document.documentElement.dataset.sidebar;
+      }
 
-      return !previous;
+      return next;
     });
   }
 
   return (
     <nav
       aria-label="Console sections"
-      data-collapsed={collapsed}
-      className={`bg-surface border-line sticky top-0 flex h-dvh shrink-0 flex-col border-r transition-[width] duration-200 ${
-        collapsed ? 'w-[4.25rem]' : 'w-60'
-      }`}
+      className="rail bg-surface border-line sticky top-0 flex h-dvh shrink-0 flex-col border-r transition-[width] duration-200"
     >
       <div className="flex h-16 items-center gap-2.5 px-5">
         <span
@@ -160,16 +168,14 @@ export function Sidebar({
         >
           <span className="bg-accent size-2 rounded-full" />
         </span>
-        {collapsed ? null : (
-          <span className="min-w-0">
-            <span className="text-ink block text-sm leading-tight font-semibold tracking-[-0.01em]">
-              AgentGate
-            </span>
-            <span className="text-ink-faint block text-[0.6875rem] leading-tight">
-              runtime authorization
-            </span>
+        <span className="rail-label min-w-0">
+          <span className="text-ink block text-sm leading-tight font-semibold tracking-[-0.01em]">
+            AgentGate
           </span>
-        )}
+          <span className="text-ink-faint block text-[0.6875rem] leading-tight">
+            runtime authorization
+          </span>
+        </span>
       </div>
 
       <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-2">
@@ -182,7 +188,7 @@ export function Sidebar({
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                title={collapsed ? item.label : undefined}
+                title={item.label}
                 className={`group relative flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors duration-150 ${
                   active
                     ? 'bg-accent-soft text-accent-ink font-medium'
@@ -190,18 +196,11 @@ export function Sidebar({
                 }`}
               >
                 {item.icon}
-                {collapsed ? (
-                  <span className="sr-only">{item.label}</span>
-                ) : (
-                  <span className="flex-1 truncate">{item.label}</span>
-                )}
+                <span className="rail-label flex-1 truncate">{item.label}</span>
                 {waiting ? (
-                  <span
-                    className={`bg-review-soft text-review border-review-line rounded-full border text-[0.625rem] font-semibold ${
-                      collapsed ? 'absolute right-3 size-2 p-0' : 'px-1.5 py-px'
-                    }`}
-                  >
-                    {collapsed ? <span className="sr-only">pending</span> : pendingApprovals}
+                  <span className="rail-badge bg-review-soft text-review border-review-line rounded-full border px-1.5 py-px text-[0.625rem] font-semibold">
+                    {pendingApprovals}
+                    <span className="sr-only"> pending</span>
                   </span>
                 ) : null}
               </Link>
@@ -215,6 +214,7 @@ export function Sidebar({
           type="button"
           onClick={toggle}
           aria-expanded={!collapsed}
+          title="Collapse or expand the sidebar"
           className="text-ink-muted hover:bg-sunken hover:text-ink flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors duration-150"
         >
           <svg
@@ -225,22 +225,20 @@ export function Sidebar({
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
-            className="size-4 shrink-0"
+            className="rail-chevron size-4 shrink-0 transition-transform duration-200"
           >
             <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
             <path d="M6.5 2.5v11" />
-            {collapsed ? <path d="m9.5 6.5 2 1.5-2 1.5" /> : <path d="m11.5 6.5-2 1.5 2 1.5" />}
+            <path d="m11.5 6.5-2 1.5 2 1.5" />
           </svg>
-          {collapsed ? <span className="sr-only">Expand sidebar</span> : <span>Collapse</span>}
+          <span className="rail-label">Collapse</span>
         </button>
-        {collapsed ? null : (
-          <p className="text-ink-faint mt-2 px-2.5 text-[0.6875rem] leading-relaxed">
-            gateway
-            <span className="ident text-ink-muted block text-[0.6875rem] break-all">
-              {gatewayHost}
-            </span>
-          </p>
-        )}
+        <p className="rail-label text-ink-faint mt-2 px-2.5 text-[0.6875rem] leading-relaxed">
+          gateway
+          <span className="ident text-ink-muted block text-[0.6875rem] break-all">
+            {gatewayHost}
+          </span>
+        </p>
       </div>
     </nav>
   );

@@ -119,6 +119,52 @@
     transition: background-color 120ms var(--ease-console);
   }
 
+  /*
+   * The rail's collapsed state, driven by an attribute the document carries before React runs.
+   *
+   * It cannot come from React state: the server has no localStorage, so a rail rendered from
+   * state is always wide on the first paint and corrects itself after hydration — a visible
+   * slide on every single page load for anyone who prefers it collapsed. A blocking script in
+   * <head> sets the attribute, and these rules mean the first paint is already right. React
+   * state is kept only for what a screen reader is told.
+   */
+  .rail {
+    width: 15rem;
+  }
+
+  html[data-sidebar='collapsed'] .rail {
+    width: 4.25rem;
+  }
+
+  /* Hidden to the eye, still read aloud: a collapsed rail is icon-only, not label-less. */
+  html[data-sidebar='collapsed'] .rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  html[data-sidebar='collapsed'] .rail-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* The count becomes a dot: there is no room for a number, but "something is waiting" must
+   * survive the collapse. */
+  html[data-sidebar='collapsed'] .rail-badge {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.4rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    overflow: hidden;
+    color: transparent;
+  }
+
   .row-link:hover {
     background-color: var(--color-sunken);
   }
