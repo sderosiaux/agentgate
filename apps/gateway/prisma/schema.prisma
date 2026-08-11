@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Principal {
+  id       String    @id // pri_xxx
+  name     String
+  agents   Agent[]
+  missions Mission[]
+}
+
+model Agent {
+  id          String    @id // agt_xxx
+  principalId String
+  agentType   String // codex | claude-code | ci | custom
+  createdAt   DateTime  @default(now())
+  principal   Principal @relation(fields: [principalId], references: [id])
+  missions    Mission[]
+}
+
+model Mission {
+  id          String    @id // mis_xxx
+  principalId String
+  agentId     String
+  intent      String
+  status      String    @default("active") // active | expired | revoked
+  environment String    @default("development")
+  permissions Json // MissionPermissions
+  network     Json // NetworkRules
+  limits      Json // MissionLimits
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  principal   Principal @relation(fields: [principalId], references: [id])
+  agent       Agent     @relation(fields: [agentId], references: [id])
+}
+
+model Credential {
+  id              String @id // cred_xxx
+  alias           String @unique // github_work
+  provider        String // github
+  logicalHost     String // api.github.com
+  upstreamBaseUrl String // http://mock-github:3001 (demo)
+  injection       Json // {type:"header",name:"Authorization",format:"Bearer {value}"}
+  ciphertext      Bytes // AES-256-GCM: iv(12) || tag(16) || data
+  status          String @default("active")
+}
+
+model Approval {
+  id             String    @id // apr_xxx
+  missionId      String
+  agentId        String
+  resource       String
+  action         String
+  requestSummary Json // {method, host, path, bodySize, contentType}
+  reason         String
+  status         String    @default("pending") // pending | approved | denied | expired | consumed
+  requestedAt    DateTime  @default(now())
+  decidedAt      DateTime?
+  grantExpiresAt DateTime?
+  consumedAt     DateTime?
+}
+
+model AuditEvent {
+  id            String   @id // aud_xxx
+  requestId     String // req_xxx
+  timestamp     DateTime @default(now())
+  principalId   String?
+  agentId       String?
+  missionId     String?
+  resource      String?
+  action        String?
+  method        String?
+  destHost      String?
+  destPath      String?
+  decision      String // ALLOW | DENY | REQUIRE_APPROVAL | ERROR
+  reason        String
+  matchedPolicy String?
+  approvalId    String?
+  httpStatus    Int?
+  latencyMs     Int
+  bodySize      Int?
+  bodyHash      String?
+  contentType   String?
+
+  @@index([missionId, timestamp])
+  @@index([decision, timestamp])
+}
+
+model UsageCounter {
+  missionId    String @id
+  requestCount Int    @default(0)
+  bytesTotal   BigInt @default(0)
+}
+
+model RateWindow {
+  missionId String
+  minute    DateTime // truncated to the minute
+  count     Int      @default(0)
+
+  @@id([missionId, minute])
+}
