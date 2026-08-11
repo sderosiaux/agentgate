@@ -100,6 +100,10 @@ export async function seed(prisma: PrismaClient): Promise<void> {
           'pull_request.create',
         ],
         approvalActions: ['pull_request.create'],
+        // `repository.delete` is what demo case 5 exercises: the network rules below route the
+        // DELETE so that this list is what refuses it. `pull_request.merge` is defence in
+        // depth — no rule routes a PUT, so nothing reaches the engine to be judged today, and
+        // it is listed so that the action is already refused the day somebody adds one.
         deniedActions: ['pull_request.merge', 'repository.delete'],
       },
       network: {

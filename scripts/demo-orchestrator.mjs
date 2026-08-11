@@ -58,6 +58,10 @@ const MISSION_SCOPE = {
       'pull_request.create',
     ],
     approvalActions: ['pull_request.create'],
+    // Case 5 exercises `repository.delete`, which the network rules below deliberately route.
+    // `pull_request.merge` is defence in depth: nothing routes a PUT, so no request reaches the
+    // engine to be judged against it today — it is listed so the action is already refused the
+    // day a rule does. Identical to the seed.
     deniedActions: ['pull_request.merge', 'repository.delete'],
   },
   network: {
@@ -532,18 +536,28 @@ const autoApprove = APPROVED_SPELLINGS.has(
 
 log(`${mode} mode, auto-approve ${autoApprove ? 'on' : 'off'}`);
 
+// A rejection here means the agent never produced an exit code of its own: the stack would not
+// come up, a port was taken, the management API refused something. Tracked separately so the
+// last line of the run does not report a verdict from a process that never started.
+let neverRan = false;
+
 const exitCode = await (mode === 'host' ? hostMode(autoApprove) : composeMode(autoApprove)).catch(
   (error) => {
     console.error(`\ndemo: ${error.message}`);
+    neverRan = true;
 
     return 1;
   },
 );
 
-log(
-  exitCode === 0
-    ? 'every case the run could make passed'
-    : `the agent exited with ${String(exitCode)}`,
-);
+if (neverRan) {
+  log('the stack could not be prepared, so no case was run and nothing was proven');
+} else {
+  log(
+    exitCode === 0
+      ? 'every case the run could make passed'
+      : `the agent exited with ${String(exitCode)}`,
+  );
+}
 
 process.exit(exitCode);
