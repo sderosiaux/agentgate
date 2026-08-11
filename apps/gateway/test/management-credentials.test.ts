@@ -239,7 +239,7 @@ test('an alias an agent may already be using is not silently overwritten', async
   });
 
   expect(second.statusCode).toBe(409);
-  expect(second.json()).toMatchObject({ error: 'agentgate_validation_error' });
+  expect(second.json()).toMatchObject({ error: 'agentgate_conflict' });
 
   // The stored secret is still the first one.
   const row = await harness.prisma.credential.findUniqueOrThrow({ where: { alias } });

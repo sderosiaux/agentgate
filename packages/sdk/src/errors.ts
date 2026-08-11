@@ -94,10 +94,12 @@ export class LimitExceededError extends AgentGateSdkError {}
 export class InvalidTokenError extends AgentGateSdkError {}
 
 /**
- * Every other refusal *the gateway made*: a malformed envelope, a body larger than it will read,
- * an upstream that failed or answered with more than the mission can afford. One class, because
- * these are conditions an agent reports rather than reacts to — but deliberately not the same
- * class as never having reached the gateway at all.
+ * Every other refusal *the gateway made*: a malformed envelope (`agentgate_validation_error`), a
+ * body larger than it will read (`agentgate_payload_too_large`), an upstream that failed or
+ * answered with more than the mission can afford (`agentgate_upstream_error`), a gateway that
+ * failed on its own (`agentgate_internal_error`). One class, because these are conditions an
+ * agent reports rather than reacts to — but deliberately not the same class as never having
+ * reached the gateway at all. Which one it was is `error.code`, carried on every instance.
  */
 export class GatewayError extends AgentGateSdkError {}
 
@@ -119,7 +121,14 @@ export class TimeoutError extends TransportError {}
  */
 export class MalformedResponseError extends AgentGateSdkError {}
 
-/** `waitForApproval` gave up: nobody decided in the time it was given. */
+/**
+ * `waitForApproval` gave up: nobody decided in the time it was given.
+ *
+ * Deliberately not a {@link TimeoutError} and not a {@link TransportError}, despite the name.
+ * Nothing timed out on the wire and nothing failed — every poll was answered, and the answer was
+ * that the approval is still pending. What ran out is a human's attention, which is not a
+ * condition to retry the way a dropped connection is.
+ */
 export class ApprovalTimeoutError extends AgentGateSdkError {}
 
 /**

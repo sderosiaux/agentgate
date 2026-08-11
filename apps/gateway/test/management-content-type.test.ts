@@ -129,7 +129,12 @@ test('a body larger than the gateway will read is refused as one', async () => {
     JSON.stringify({ name: 'x'.repeat(2 * 1024 * 1024) }),
   );
 
-  // 413 from the framework or 400 from the schema — either is a refusal the caller can read.
+  // 413 from the framework or 400 from the schema — either is a refusal the caller can read,
+  // and the code follows the status rather than being one blanket answer for both. The two ask
+  // the caller for different things: send less, or send it differently.
   expect([400, 413]).toContain(response.statusCode);
-  expect(response.json()).toMatchObject({ error: 'agentgate_validation_error' });
+  expect(response.json()).toMatchObject({
+    error:
+      response.statusCode === 413 ? 'agentgate_payload_too_large' : 'agentgate_validation_error',
+  });
 });

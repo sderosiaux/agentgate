@@ -273,8 +273,12 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
           // Checked before the mission is even looked up: the answer does not depend on which
           // mission was asked for, and a gateway that cannot mint should not be reporting on
           // whether a mission exists as a side effect of being asked to.
+          // Not an upstream error: nothing was called and nothing failed. This deployment was
+          // started without a signing key, which is a fact about the gateway itself — and the
+          // difference matters to whoever is paged, because one of the two is fixed by an
+          // operator editing an environment and the other by a third party recovering.
           throw new AgentGateError(
-            'agentgate_upstream_error',
+            'agentgate_internal_error',
             503,
             'this gateway cannot mint agent tokens: AGENTGATE_JWT_PRIVATE_KEY is not configured',
           );

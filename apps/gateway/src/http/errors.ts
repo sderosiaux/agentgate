@@ -41,7 +41,9 @@ function fromContentTypeError(error: unknown): AgentGateError | null {
   const status = typeof failure.statusCode === 'number' ? failure.statusCode : 400;
 
   return new AgentGateError(
-    'agentgate_validation_error',
+    // A body nobody read is not a body that failed validation: the caller's fix is to send less,
+    // not to send it differently, and the two are worth telling apart without parsing prose.
+    status === 413 ? 'agentgate_payload_too_large' : 'agentgate_validation_error',
     status,
     CONTENT_TYPE_REFUSAL[failure.code] ?? 'request body could not be read',
     { cause: error },
@@ -78,7 +80,7 @@ export async function replyWithError(
   return reply
     .code(500)
     .send(
-      new AgentGateError('agentgate_upstream_error', 500, 'the gateway could not answer').toBody(
+      new AgentGateError('agentgate_internal_error', 500, 'the gateway could not answer').toBody(
         requestId,
       ),
     );

@@ -38,7 +38,7 @@ test('an oversized body is refused with an AgentGate error, not a framework fail
 
   expect(response.statusCode).toBe(413);
   expect(response.json()).toMatchObject({
-    error: 'agentgate_validation_error',
+    error: 'agentgate_payload_too_large',
     decision: 'DENY',
   });
   expect(String(response.json()['request_id'])).toMatch(/^req_/);

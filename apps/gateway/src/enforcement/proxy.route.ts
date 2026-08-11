@@ -44,6 +44,14 @@ function respond(
     'proxy attempt',
   );
 
+  // The 500 path, and only it. Everything above is a decision this gateway stands behind and
+  // explains; this is the one answer whose reason exists nowhere else, because the agent is
+  // told "the gateway could not answer" and the audit row records the same sentence. Logged
+  // here, where the request id is already bound, and never sent anywhere near the client.
+  if (outcome.cause !== undefined) {
+    request.log.error({ err: outcome.cause }, 'proxy attempt failed unexpectedly');
+  }
+
   // The one header the gateway adds to an upstream response: it is what ties what the agent
   // got to the audit row explaining why it got it.
   void reply

@@ -464,5 +464,5 @@ test('the management routes refuse what they cannot make sense of', async () => 
 
   const second = await harness.admin('POST', `/api/v1/approvals/${approvalId}/approve`);
   expect(second.statusCode).toBe(409);
-  expect(second.json()).toMatchObject({ error: 'agentgate_validation_error' });
+  expect(second.json()).toMatchObject({ error: 'agentgate_conflict' });
 });

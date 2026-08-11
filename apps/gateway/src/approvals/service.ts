@@ -258,7 +258,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
       }
 
       throw new AgentGateError(
-        'agentgate_validation_error',
+        'agentgate_conflict',
         409,
         `approval ${id} is already ${existing.status}`,
       );

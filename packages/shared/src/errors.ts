@@ -10,6 +10,16 @@ export type AgentGateErrorCode =
   | 'agentgate_unmapped_action'
   | 'agentgate_upstream_error'
   | 'agentgate_validation_error'
+  /** The request was refused before it was read: it is larger than the gateway will buffer. */
+  | 'agentgate_payload_too_large'
+  /** Well formed, but it asks for something the current state does not allow. */
+  | 'agentgate_conflict'
+  /**
+   * The gateway did not reach a decision. Distinct from `agentgate_upstream_error`, which says
+   * a named third party failed: a client that retries an upstream failure and reports an
+   * internal one is doing the right thing with both, and it can only tell them apart here.
+   */
+  | 'agentgate_internal_error'
   | 'agentgate_not_found';
 
 export interface AgentGateErrorBody {

@@ -49,8 +49,15 @@ export function notFound(what: string): AgentGateError {
   return new AgentGateError('agentgate_not_found', 404, `${what} is unknown`);
 }
 
+/**
+ * A request this API understood and will not carry out, because of the state it found.
+ *
+ * Its own code rather than the validation one: "the alias you sent is not a string" and "the
+ * alias you sent already names a credential" are the same status only by accident, and a client
+ * that retries the second after fixing nothing is a client the first code told to do that.
+ */
 export function conflict(reason: string): AgentGateError {
-  return new AgentGateError('agentgate_validation_error', 409, reason);
+  return new AgentGateError('agentgate_conflict', 409, reason);
 }
 
 export function badRequest(reason: string): AgentGateError {

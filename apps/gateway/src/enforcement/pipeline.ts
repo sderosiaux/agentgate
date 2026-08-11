@@ -79,7 +79,7 @@ function parseProxyRequest(attempt: Attempt, rawBody: unknown): ProxyRequestBody
   if (rawBody === OVERSIZED_BODY) {
     attempt.matchedPolicy = 'request-body-too-large';
     throw new AgentGateError(
-      'agentgate_validation_error',
+      'agentgate_payload_too_large',
       413,
       'proxy request body is larger than the gateway will read',
       { decision: 'DENY' },
@@ -137,6 +137,15 @@ export interface ProxyOutcome {
   /** What the trail says about this attempt, so the caller can log it without re-deriving it. */
   decision: AuditDecision;
   reason: string;
+  /**
+   * The throw behind a 500, for the server-side log and nothing else.
+   *
+   * Both the body and the audit reason say "the gateway could not answer", which is all the
+   * agent gets to know and all an append-only table should hold. Without this field that is
+   * also all *anyone* gets: the one failure worth waking somebody for would be the one with no
+   * cause recorded anywhere. Never serialised into a response — `respond` logs it and drops it.
+   */
+  cause?: unknown;
 }
 
 /**
@@ -153,8 +162,11 @@ const AUDIT_DECISION_BY_CODE: Record<AgentGateErrorCode, AuditDecision> = {
   agentgate_unknown_credential: 'DENY',
   agentgate_unmapped_action: 'DENY',
   agentgate_validation_error: 'DENY',
+  agentgate_payload_too_large: 'DENY',
+  agentgate_conflict: 'DENY',
   agentgate_not_found: 'DENY',
   agentgate_upstream_error: 'ERROR',
+  agentgate_internal_error: 'ERROR',
 };
 
 /** What the audit row knows so far. Filled as the pipeline learns it, written exactly once. */
@@ -679,11 +691,13 @@ export async function handleProxyRequest(
 
     return outcome;
   } catch (error) {
+    const unexpected = !(error instanceof AgentGateError);
     const failure =
       error instanceof AgentGateError
         ? error
-        : // A bug or an outage: the agent learns nothing about it beyond the request id.
-          new AgentGateError('agentgate_upstream_error', 500, 'the gateway could not answer', {
+        : // A bug in this gateway: the agent learns nothing about it beyond the request id, and
+          // neither does the audit row. `cause` below is how it reaches an operator.
+          new AgentGateError('agentgate_internal_error', 500, 'the gateway could not answer', {
             cause: error,
           });
 
@@ -693,6 +707,7 @@ export async function handleProxyRequest(
     outcome = {
       status: failure.httpStatus,
       headers: {},
+      ...(unexpected ? { cause: error } : {}),
       // The one refusal that hands something back: the id of the approval a human now has to
       // decide, without which a 202 is an instruction the agent cannot act on.
       body:

@@ -96,7 +96,7 @@ test('an expired mission mints nothing, and the row stops claiming to be active'
   const refused = await mintFor(harness, harness.missionId);
 
   expect(refused.statusCode).toBe(409);
-  expect(refused.json()).toMatchObject({ error: 'agentgate_validation_error' });
+  expect(refused.json()).toMatchObject({ error: 'agentgate_conflict' });
   expect(String(refused.json()['reason'])).toContain('expired');
 
   const mission = await harness.prisma.mission.findUniqueOrThrow({
@@ -164,7 +164,7 @@ test('a gateway with no signing key says so, rather than failing as if it were b
 
   expect(refused.statusCode).toBe(503);
   const body = refused.json();
-  expect(body).toMatchObject({ error: 'agentgate_upstream_error' });
+  expect(body).toMatchObject({ error: 'agentgate_internal_error' });
   // Machine-readable enough to act on: the reason names the setting that is missing.
   expect(String(body['reason'])).toContain('AGENTGATE_JWT_PRIVATE_KEY');
   // And no key material of any kind travels with it.
