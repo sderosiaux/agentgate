@@ -1,4 +1,5 @@
 import { AgentGateError } from '@agentgate/shared';
+import { registerSensitive, scrubSensitive } from '../logging.js';
 import type { InjectedHeader } from '../secrets/index.js';
 
 /** A policy call and a forward both sit on the request path: a hung upstream must not hold it. */
@@ -65,13 +66,20 @@ export interface ForwardResult {
 }
 
 /**
- * The path and query of the agent's url, byte for byte.
+ * The path and query of the agent's url, taken from the string the agent wrote.
  *
- * Never rebuilt from `NormalizedUrl.path`: that string is percent-decoded, `..`-collapsed and
- * has lost its query, so re-encoding it would send the upstream a url the agent never wrote —
- * and a request served at a path policy did not decide about is the whole failure this
- * gateway exists to prevent. The url has been through `normalizeUrl`, so it has a scheme and
- * carries no whitespace, control character or backslash.
+ * Never rebuilt from `NormalizedUrl.path`: that string is percent-decoded and has lost its
+ * query, so re-encoding it would send the upstream a url the agent never wrote — and a request
+ * served at a path policy did not decide about is the whole failure this gateway exists to
+ * prevent.
+ *
+ * Not literally byte for byte on the wire: `fetch` parses this url and collapses `/./` and
+ * `/../` itself. That is safe because it collapses them the same way `normalizeUrl` already
+ * did, so the two converge on one path — what matters is that the query survives and that no
+ * percent escape is decoded and re-encoded between the decision and the request.
+ *
+ * The url has been through `normalizeUrl`, so it has a scheme and carries no whitespace,
+ * control character or backslash.
  */
 function pathAndQueryOf(url: string): string {
   const afterScheme = url.slice(url.indexOf('://') + 3);
@@ -131,7 +139,7 @@ function returnedHeaders(response: Response): Record<string, string> {
 
   response.headers.forEach((value, name) => {
     if (RETURNED_RESPONSE_HEADERS.has(name.toLowerCase())) {
-      headers[name.toLowerCase()] = value;
+      headers[name.toLowerCase()] = scrubSensitive(value);
     }
   });
 
@@ -149,6 +157,11 @@ function returnedHeaders(response: Response): Record<string, string> {
 export async function forward(request: ForwardRequest): Promise<ForwardResult> {
   const target = upstreamTarget(request.upstreamBaseUrl, request.url);
   const method = request.method.toUpperCase();
+
+  // Whatever is about to go on the wire must never come back off it. The store registers the
+  // values it decrypts, but registering here too covers any credential that reached the
+  // forwarder by another road, and it is the value this very call is putting at risk.
+  registerSensitive(request.injected.value);
 
   let response: Response;
   try {
@@ -182,7 +195,13 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
   return {
     status: response.status,
     headers: returnedHeaders(response),
-    body: payload.toString('utf8'),
+    // An upstream that reflects the request — an echo endpoint, a debug route, a service that
+    // quotes the header it rejected — hands the injected credential straight back, and this
+    // body goes to the agent. Logs are not the only place a secret can escape from, so the
+    // same scrub the logger uses runs over what the agent is about to be told.
+    body: scrubSensitive(payload.toString('utf8')),
+    // Counted before scrubbing: the byte budget is about what crossed the network, not about
+    // what is left after the gateway has redacted it.
     responseBytes: payload.byteLength,
   };
 }

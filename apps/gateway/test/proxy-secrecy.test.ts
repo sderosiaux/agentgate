@@ -1,10 +1,14 @@
 import { afterEach, expect, test } from 'vitest';
+import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
 import { startHarness, UPSTREAM_TOKEN, type Harness } from './helpers/gateway.js';
 
 let harness: Harness;
+let echo: EchoUpstream | undefined;
 
 afterEach(async () => {
   await harness.close();
+  await echo?.close();
+  echo = undefined;
 });
 
 const READ_PAYMENTS = {
@@ -31,6 +35,23 @@ test('the credential never reaches the response the agent gets', async () => {
 
   expect(response.body).not.toContain(UPSTREAM_TOKEN);
   expect(JSON.stringify(response.headers)).not.toContain(UPSTREAM_TOKEN);
+});
+
+test('an upstream that reflects the credential still leaves the agent without it', async () => {
+  // The SPEC red line: an agent must never end up holding the credential, and an upstream is
+  // not something the gateway gets to trust about that. This one hands back every header it
+  // was sent, which is exactly what the injected credential travels in.
+  echo = await startEchoUpstream();
+  harness = await startHarness({ upstreamBaseUrl: echo.baseUrl });
+  const token = await harness.mint();
+
+  const response = await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
+
+  expect(response.statusCode).toBe(200);
+  expect(response.body).toContain('[REDACTED]');
+  expect(response.body).not.toContain(UPSTREAM_TOKEN);
+  expect(JSON.stringify(response.headers)).not.toContain(UPSTREAM_TOKEN);
+  expect(harness.logLines.join('')).not.toContain(UPSTREAM_TOKEN);
 });
 
 test('the credential never reaches the audit trail', async () => {

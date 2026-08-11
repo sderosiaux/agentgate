@@ -161,6 +161,31 @@ test('response headers outside the safelist are dropped', async () => {
   expect(result.headers['x-secret-upstream-header']).toBeUndefined();
 });
 
+test('an upstream reflecting the credential back does not hand it to the agent', async () => {
+  const result = await toEcho();
+
+  // The upstream echoes every header it received, including the one the gateway injected.
+  // Passing that through would defeat the entire point: the agent would end up holding the
+  // credential it was never allowed to see.
+  expect(result.body).not.toContain(UPSTREAM_TOKEN);
+  expect(result.body).toContain('[REDACTED]');
+});
+
+test('a credential reflected into a response header does not reach the agent either', async () => {
+  const result = await toEcho();
+
+  expect(result.headers['etag']).not.toContain(UPSTREAM_TOKEN);
+  expect(result.headers['etag']).toContain('[REDACTED]');
+});
+
+test('the bytes charged to the mission are the bytes the upstream actually sent', async () => {
+  // Scrubbing shortens the body; the network moved the original, and that is what a byte
+  // budget is about.
+  const result = await toEcho();
+
+  expect(result.responseBytes).toBeGreaterThan(Buffer.byteLength(result.body, 'utf8'));
+});
+
 test('the injected credential is what makes the upstream answer', async () => {
   const result = await forward({
     method: 'GET',

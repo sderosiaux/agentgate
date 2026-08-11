@@ -44,10 +44,14 @@ export async function startEchoUpstream(): Promise<EchoUpstream> {
       body: typeof request.body === 'string' ? request.body : null,
     });
 
+    // Reflects what it was sent, in the body and in a safelisted response header. An upstream
+    // that hands the injected credential straight back is the case the gateway has to survive:
+    // whatever comes back reaches the agent, and the agent must never hold a credential.
     return reply
       .header('set-cookie', 'session=must-not-come-back')
       .header('x-secret-upstream-header', 'must-not-come-back')
-      .send({ echoed: true });
+      .header('etag', String(request.headers.authorization ?? 'none'))
+      .send({ echoed: true, headers: request.headers });
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
