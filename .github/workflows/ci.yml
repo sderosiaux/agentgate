@@ -110,6 +110,17 @@ jobs:
           pnpm --filter @agentgate/web build
           pnpm -r test
 
+      - name: Keep the leak scan's verdict
+        # The scan writes its findings to a file as well as to stderr, because a finding lost to
+        # a truncated log is a finding nobody can act on. That has happened once already, on a
+        # developer's terminal, and the occurrences were never recovered.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leak-report-suites
+          path: artifacts/leak-report.txt
+          if-no-files-found: ignore
+
       # Both OPA-gated suites are `skipIf(!OPA_URL)`, which means the default way to run them is
       # not to: 45 tests that say "the rego and the builtin engine agree" and skip in silence.
       # The step above sets the variable, and this one proves the variable had an effect — one
@@ -186,6 +197,14 @@ jobs:
         # `docker compose logs` stage executes instead of skipping loudly. The console stage
         # still skips here — the console is in a container, not a local build.
         run: node scripts/leak-scan.mjs --transcript artifacts/demo-output.txt
+
+      - name: Keep the leak scan's verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leak-report-compose
+          path: artifacts/leak-report.txt
+          if-no-files-found: ignore
 
       - name: Keep the transcript, but only when something went wrong
         # On failure only. The transcript is the evidence for a demo that broke, and it also

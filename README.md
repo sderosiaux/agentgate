@@ -333,7 +333,7 @@ scripts/        demo-orchestrator.mjs, leak-scan.mjs, generate-env.mjs
 3. Generate fresh secrets. The committed ones are public.
 4. Terminate TLS in front of the gateway.
 
-`scripts/leak-scan.mjs` runs the demo and then greps the transcript, both databases, every management GET, the OpenAPI document, every console page and `docker compose logs` for the upstream token and the admin token. One hit anywhere is a non-zero exit. It runs as part of `make test`.
+`scripts/leak-scan.mjs` runs the demo and then greps the transcript, both databases, every management GET, the OpenAPI document, every console page and `docker compose logs` for the upstream token and the admin token. One hit anywhere is a non-zero exit. It runs as part of `make test`, and it writes its verdict to `artifacts/leak-report.txt` as well as to the terminal — with the values themselves redacted out, because a scanner that prints the secret into a log everyone can read has leaked it on everyone's behalf.
 
 ---
 
@@ -370,7 +370,9 @@ With `OPA_URL` pointing at a live OPA it is 671 passing and nothing skipped. Tho
 
 `opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.
 
-The leak scan is clean over a real host-mode run: the demo transcript with every service's own stdout in it, 18 tables across both databases (about 10 MB of JSON), 15 management responses including the OpenAPI document, 10 console pages, and the gateway's log output during the sweep. Its Docker stage skipped, loudly, as described above.
+The leak scan is clean over a real host-mode run: the demo transcript with every service's own stdout in it, 18 tables across both databases (about 12 MB of JSON), 15 management responses including the OpenAPI document, 10 console pages, and the gateway's log output during the sweep. Its Docker stage skipped, loudly, as described above.
+
+One caveat on that, because it is the kind of thing worth knowing about a security check. An early run of the scan reported five occurrences, and the locations were lost to a truncated terminal before anyone read them. Nine subsequent runs, including the exact sequence that preceded it and one straight after a rebuild, came back clean; a separate test that points the console at a dead gateway and reads all seven error pages found no token either. So the finding is unreproduced and unexplained rather than fixed. The scan now writes its verdict to a file precisely so this cannot happen twice.
 
 Three structural greps also come back empty: no module under the enforcement tree imports anything from the management tree, no `console.log` exists anywhere in the gateway source, and the upstream token appears nowhere outside `.env.example`, the SPEC, the plan documents, test fixtures and the leak scanner's own list of things to hunt for.
 

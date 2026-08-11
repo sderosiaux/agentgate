@@ -33,6 +33,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ARTIFACTS = path.join(ROOT, 'artifacts');
 const TRANSCRIPT = path.join(ARTIFACTS, 'demo-output.txt');
+/** Where the verdict is written, so a truncated terminal cannot destroy a finding. */
+const REPORT = path.join(ARTIFACTS, 'leak-report.txt');
 
 /**
  * Shortest string worth hunting for. Anything below this matches ordinary text by accident, and
@@ -648,8 +650,44 @@ try {
 
 // ---------------------------------------------------------------------------- verdict
 
+/**
+ * The verdict, on disk as well as on the terminal.
+ *
+ * Written because of a real loss: a run of this script reported five occurrences, and the
+ * locations went to stderr through a `| head` that cut them off. The evidence for the one
+ * finding this check exists to produce was destroyed by the shell that ran it, and eight
+ * later runs came back clean, so there is nothing left to look at.
+ *
+ * Terminals truncate, CI collapses log groups, and a pipeline eats stderr. A file does none of
+ * those. The needle values are still redacted out of it — this is a record of where something
+ * was found, never of what it was.
+ */
+function writeReport(lines) {
+  try {
+    mkdirSync(ARTIFACTS, { recursive: true });
+    writeFileSync(REPORT, `${lines.join('\n')}\n`, { mode: 0o600 });
+
+    return REPORT;
+  } catch (error) {
+    console.error(`leak-scan: could not write ${REPORT}: ${error.message}`);
+
+    return null;
+  }
+}
+
 console.log('');
 const skipped = checks.filter((check) => check.status === 'SKIPPED');
+const report = [
+  `leak-scan ${new Date().toISOString()}`,
+  '',
+  'checks:',
+  ...checks.map((check) =>
+    check.status === 'SKIPPED'
+      ? `  SKIPPED  ${check.name} — ${check.why}`
+      : `  scanned  ${check.name} — ${check.detail}`,
+  ),
+  '',
+];
 
 if (skipped.length > 0) {
   console.log(`leak-scan: ${String(skipped.length)} check(s) did NOT run:`);
@@ -661,16 +699,29 @@ if (skipped.length > 0) {
 }
 
 if (findings.length > 0) {
+  const detail = findings.flatMap((finding) => [
+    `  - ${finding.needle} in ${finding.where} at byte ${String(finding.offset)}`,
+    `      ${finding.context}`,
+  ]);
+
   console.error(`leak-scan: FAILED — ${String(findings.length)} occurrence(s):`);
-  for (const finding of findings) {
-    console.error(`  - ${finding.needle} in ${finding.where} at byte ${String(finding.offset)}`);
-    console.error(`      ${finding.context}`);
+  for (const line of detail) {
+    console.error(line);
+  }
+
+  const written = writeReport([
+    ...report,
+    `FAILED — ${String(findings.length)} occurrence(s):`,
+    ...detail,
+  ]);
+  if (written !== null) {
+    console.error(`\nleak-scan: the same list is in ${written}, in full.`);
   }
   console.error('');
   process.exit(1);
 }
 
-console.log(
-  `leak-scan: clean — ${String(checks.filter((c) => c.status === 'scanned').length)} check(s) ran, no occurrence of any secret.`,
-);
+const ran = checks.filter((check) => check.status === 'scanned').length;
+writeReport([...report, `clean — ${String(ran)} check(s) ran, no occurrence of any secret.`]);
+console.log(`leak-scan: clean — ${String(ran)} check(s) ran, no occurrence of any secret.`);
 process.exit(0);
