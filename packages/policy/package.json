@@ -1,0 +1,29 @@
+{
+  "name": "@agentgate/policy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "prepare": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "pnpm --filter \"@agentgate/policy...\" build && tsc -p tsconfig.test.json",
+    "test": "pnpm --filter \"@agentgate/policy...\" build && vitest run"
+  },
+  "dependencies": {
+    "@agentgate/shared": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
