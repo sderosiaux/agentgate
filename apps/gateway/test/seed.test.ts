@@ -57,5 +57,5 @@ test('the seeded credential exposes an alias, never a plaintext value', async ()
     name: 'Authorization',
     format: 'Bearer {value}',
   });
-  expect(credential.ciphertext.toString('utf8')).not.toContain('super-secret');
+  expect(Buffer.from(credential.ciphertext).toString('utf8')).not.toContain('super-secret');
 });
