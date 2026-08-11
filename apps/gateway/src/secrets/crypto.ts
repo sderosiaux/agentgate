@@ -40,7 +40,9 @@ function masterKey(masterKeyB64: string): Buffer {
   return Buffer.from(masterKeyB64, 'base64');
 }
 
-export function encryptSecret(masterKeyB64: string, plaintext: string): Buffer {
+// The return type is narrowed to `Buffer<ArrayBuffer>` so the blob can be handed to Prisma's
+// `Bytes` columns, which reject the wider `ArrayBufferLike` backing store.
+export function encryptSecret(masterKeyB64: string, plaintext: string): Buffer<ArrayBuffer> {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, masterKey(masterKeyB64), iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
