@@ -474,6 +474,47 @@ test.each([
   expect(rows[0]?.matchedPolicy).toBe('request-invalid-envelope');
 });
 
+test.each([
+  [
+    'an alias longer than any alias',
+    { credential: 'a'.repeat(200), url: 'https://api.github.com/x' },
+  ],
+  [
+    'a url longer than any url',
+    { credential: 'github_work', url: `https://api.github.com/${'a'.repeat(5_000)}` },
+  ],
+])('%s is refused before it can be written down', async (_name, fields) => {
+  // The trail is append-only: whatever an agent puts in these two fields is quoted back in
+  // `reason` and kept forever. Unbounded, a denied request is a free megabyte of indelible
+  // storage per attempt, which is a cheaper attack than any of the ones policy is guarding.
+  harness = await startHarness();
+  const token = await harness.mint();
+
+  const response = await harness.proxy({ method: 'GET', ...fields }, token);
+
+  expect(response.statusCode).toBe(400);
+  expect(response.json()).toMatchObject({ error: 'agentgate_validation_error' });
+
+  const rows = await auditRow(harness);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.matchedPolicy).toBe('request-invalid-envelope');
+  expect(rows[0]?.reason.length).toBeLessThan(500);
+});
+
+test('an alias at the cap is still accepted, so the bound is a limit and not a trap', async () => {
+  harness = await startHarness();
+  const token = await harness.mint();
+
+  const response = await harness.proxy(
+    { credential: 'a'.repeat(128), method: 'GET', url: 'https://api.github.com/repos/acme/x' },
+    token,
+  );
+
+  // Refused for not existing, which means the envelope itself was read and understood.
+  expect(response.statusCode).toBe(403);
+  expect(response.json()).toMatchObject({ error: 'agentgate_unknown_credential' });
+});
+
 test('no refusal ever leaves the trail without saying which stage made it', async () => {
   harness = await startHarness();
   const token = await harness.mint();

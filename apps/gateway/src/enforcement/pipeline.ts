@@ -37,13 +37,24 @@ const MethodSchema = z
   .pipe(z.enum(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']));
 
 /**
+ * Bounds on the two strings an agent chooses freely and that a refusal quotes back.
+ *
+ * `reason` is written to an append-only table, so anything unbounded here is indelible storage
+ * an authenticated agent can fill a megabyte at a time, one denied request after another —
+ * cheaper than any attack the policy engine is watching for. 128 is longer than any alias a
+ * human will type; 4096 is the url length every proxy and server on the path already assumes.
+ */
+const MAX_ALIAS_LENGTH = 128;
+const MAX_URL_LENGTH = 4_096;
+
+/**
  * The agent-facing contract (D1). Strict: a field the gateway does not understand is a request
  * it cannot reason about, and answering it anyway is how an unchecked knob gets shipped.
  */
 const ProxyRequestSchema = z.strictObject({
-  credential: z.string().min(1),
+  credential: z.string().min(1).max(MAX_ALIAS_LENGTH),
   method: MethodSchema,
-  url: z.string().min(1),
+  url: z.string().min(1).max(MAX_URL_LENGTH),
   headers: z.record(z.string(), z.string()).optional(),
   body: z.string().optional(),
   /** Plan 07. Accepted by the contract today, and not yet consumed by anything. */
