@@ -1,4 +1,4 @@
-.PHONY: help setup dev dev-db db-migrate test demo reset
+.PHONY: help setup dev dev-db require-env db-migrate test demo reset
 
 help: ## List the available targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -17,11 +17,14 @@ dev: ## Start the whole stack
 dev-db: ## Start only PostgreSQL, for host-side tests
 	docker compose up -d --wait postgres
 
-db-migrate: ## Apply migrations from the host to the compose database
+require-env:
+	@if [ ! -f .env ]; then echo "No .env found — run make setup first."; exit 1; fi
+
+db-migrate: require-env ## Apply migrations from the host to the test database
 	@set -a && . ./.env && set +a && DATABASE_URL="$$DATABASE_URL_TEST" \
 		pnpm --filter @agentgate/gateway exec prisma migrate deploy
 
-test: dev-db db-migrate ## Run every workspace test suite (needs the database)
+test: require-env dev-db db-migrate ## Run every workspace test suite (needs the database)
 	pnpm -r test
 
 demo: ## Run the end-to-end authorization demo

@@ -14,7 +14,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const templatePath = path.join(repoRoot, '.env.example');
 const outputPath = path.resolve(process.argv[2] ?? path.join(repoRoot, '.env'));
 
-export function generateSecrets() {
+function generateSecrets() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 
   return {
