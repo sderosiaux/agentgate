@@ -436,6 +436,7 @@ test.each([
   expect(response.statusCode).toBe(400);
   expect(response.json()).toMatchObject({ error: 'agentgate_validation_error' });
   expect(harness.upstreamRequests).toHaveLength(0);
+  expect((await auditRow(harness))[0]?.matchedPolicy).toBe('request-invalid-url');
 });
 
 test.each([
@@ -463,6 +464,31 @@ test.each([
   });
   expect(rows).toHaveLength(1);
   expect(rows[0]?.agentId).toBe(harness.agentId);
+  // Every refusal names the stage that made it, validation included.
+  expect(rows[0]?.matchedPolicy).toBe('request-invalid-envelope');
+});
+
+test('no refusal ever leaves the trail without saying which stage made it', async () => {
+  harness = await startHarness();
+  const token = await harness.mint();
+
+  await harness.proxy({ nonsense: true }, token);
+  await harness.proxy({ credential: harness.alias, method: 'GET', url: 'nope' }, token);
+  await harness.proxy({ credential: 'no_such_alias', ...READ_PAYMENTS }, token);
+  await harness.proxy(
+    { credential: harness.alias, method: 'DELETE', url: 'https://api.github.com/repos/acme/x' },
+    token,
+  );
+
+  const rows = await auditRow(harness);
+
+  expect(rows).toHaveLength(4);
+  expect(rows.map((row) => row.matchedPolicy)).toEqual([
+    'request-invalid-envelope',
+    'request-invalid-url',
+    'credential-unknown',
+    'network-default-deny',
+  ]);
 });
 
 test('a body that is not json at all is refused by the pipeline, not by the framework', async () => {

@@ -52,10 +52,11 @@ const ProxyRequestSchema = z.strictObject({
 
 export type ProxyRequestBody = z.infer<typeof ProxyRequestSchema>;
 
-function parseProxyRequest(rawBody: unknown): ProxyRequestBody {
+function parseProxyRequest(attempt: Attempt, rawBody: unknown): ProxyRequestBody {
   const parsed = ProxyRequestSchema.safeParse(rawBody);
 
   if (!parsed.success) {
+    attempt.matchedPolicy = 'request-invalid-envelope';
     throw new AgentGateError(
       'agentgate_validation_error',
       400,
@@ -65,6 +66,20 @@ function parseProxyRequest(rawBody: unknown): ProxyRequestBody {
   }
 
   return parsed.data;
+}
+
+/**
+ * `normalizeUrl` refuses a url the gateway cannot reason about — no scheme, a traversal, an
+ * authority carrying credentials. Wrapped only to tag the attempt: a refusal that leaves the
+ * trail saying nothing about which stage made it is a refusal nobody can audit.
+ */
+function normalizeRequestUrl(attempt: Attempt, url: string): ReturnType<typeof normalizeUrl> {
+  try {
+    return normalizeUrl(url);
+  } catch (error) {
+    attempt.matchedPolicy = 'request-invalid-url';
+    throw error;
+  }
 }
 
 export interface PipelineDeps {
@@ -305,7 +320,7 @@ async function execute(
   // unauthenticated or out-of-budget request gets an answer about that, rather than a critique
   // of a body nobody was going to act on. Reading it after the slot is what stops a malformed
   // body from being a free write to an append-only table.
-  const request = parseProxyRequest(rawBody);
+  const request = parseProxyRequest(attempt, rawBody);
   attempt.method = request.method;
   Object.assign(attempt, describeBody(request));
 
@@ -319,7 +334,7 @@ async function execute(
   }
 
   // 4 — one spelling of the url, which every later stage matches on.
-  const normalized = normalizeUrl(request.url);
+  const normalized = normalizeRequestUrl(attempt, request.url);
   attempt.destHost = normalized.host;
   attempt.destPath = normalized.path;
 
