@@ -1,18 +1,6 @@
-import { z } from 'zod';
 import type { PrismaClient } from '../db.js';
 import { assertMasterKey, decryptSecret } from './crypto.js';
-
-// How a resolved credential is put on the wire by the enforcement path. `format` is a
-// template: the gateway substitutes `{value}` with the decrypted secret at injection time.
-export const InjectionSpecSchema = z.strictObject({
-  type: z.literal('header'),
-  name: z.string().min(1),
-  format: z.string().refine((format) => format.includes('{value}'), {
-    message: 'injection format must contain the {value} placeholder',
-  }),
-});
-
-export type InjectionSpec = z.infer<typeof InjectionSpecSchema>;
+import { InjectionSpecSchema, type InjectionSpec } from './injection.js';
 
 /** Everything about a credential except the secret: safe to log, serialise and audit. */
 export interface CredentialDescriptor {
@@ -38,6 +26,23 @@ export interface ResolvedCredential extends CredentialDescriptor {
  */
 export interface SecretStore {
   getByAlias(alias: string): Promise<ResolvedCredential | null>;
+}
+
+/**
+ * `Credential.injection` is a Json column: nothing in the database enforces its shape, so a
+ * hand-edited or drifted row surfaces here. The alias is safe to log — it is what agents
+ * already hold — and it is the only thing that makes the failure diagnosable.
+ */
+function parseInjection(alias: string, injection: unknown): InjectionSpec {
+  const parsed = InjectionSpecSchema.safeParse(injection);
+
+  if (!parsed.success) {
+    throw new Error(`Credential "${alias}" has a malformed injection spec stored in the database`, {
+      cause: parsed.error,
+    });
+  }
+
+  return parsed.data;
 }
 
 function resolveCredential(descriptor: CredentialDescriptor, value: string): ResolvedCredential {
@@ -71,7 +76,7 @@ export function createDbSecretStore(prisma: PrismaClient, masterKeyB64: string):
         provider: row.provider,
         logicalHost: row.logicalHost,
         upstreamBaseUrl: row.upstreamBaseUrl,
-        injection: InjectionSpecSchema.parse(row.injection),
+        injection: parseInjection(row.alias, row.injection),
       };
 
       return resolveCredential(

@@ -1,10 +1,14 @@
 export { assertBootEnv } from './boot.js';
 export { assertMasterKey, decryptSecret, encryptSecret } from './crypto.js';
 export {
-  createDbSecretStore,
+  applyInjection,
   InjectionSpecSchema,
-  type CredentialDescriptor,
+  type InjectedHeader,
   type InjectionSpec,
+} from './injection.js';
+export {
+  createDbSecretStore,
+  type CredentialDescriptor,
   type ResolvedCredential,
   type SecretStore,
 } from './store.js';
