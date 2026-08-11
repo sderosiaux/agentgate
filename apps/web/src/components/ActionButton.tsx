@@ -1,7 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 /**
  * Every state-changing control in the console.
@@ -45,6 +52,68 @@ export function ActionButton({
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  function close(): void {
+    setAsking(false);
+    // Back where it came from, so a cancelled confirmation leaves the keyboard exactly where the
+    // person left it rather than at the top of the document.
+    trigger.current?.focus();
+  }
+
+  /**
+   * Makes the dialog behave the way it already claims to.
+   *
+   * It guards the one irreversible action in this console, and it announced `aria-modal` while
+   * leaving focus outside itself, ignoring Escape and letting Tab walk off behind the scrim —
+   * which for anyone not using a mouse meant confirming, or failing to cancel, blind.
+   *
+   * Cancel takes focus rather than the confirming button: the destructive choice should never be
+   * one stray Enter away.
+   */
+  useEffect(() => {
+    if (!asking) {
+      return;
+    }
+
+    cancel.current?.focus();
+
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+
+        return;
+      }
+      if (event.key !== 'Tab' || dialog.current === null) {
+        return;
+      }
+
+      const stops = [...dialog.current.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      const first = stops[0];
+      const last = stops.at(-1);
+      if (first === undefined || last === undefined) {
+        return;
+      }
+
+      const inside = dialog.current.contains(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || !inside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+
+    // Keyed on `asking` alone: `close` only touches refs and a setter, so re-running this on
+    // every render would rebind the listener for nothing.
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [asking]);
 
   async function run(): Promise<void> {
     setBusy(true);
@@ -87,6 +156,7 @@ export function ActionButton({
   return (
     <span className="relative inline-flex flex-col items-stretch">
       <button
+        ref={trigger}
         type="button"
         disabled={working}
         onClick={() => {
@@ -112,6 +182,7 @@ export function ActionButton({
       {asking && confirm !== undefined ? (
         <div className="bg-scrim fixed inset-0 z-50 grid place-items-center p-4">
           <div
+            ref={dialog}
             role="alertdialog"
             aria-modal="true"
             aria-label={confirm.title}
@@ -129,8 +200,9 @@ export function ActionButton({
             )}
             <div className="mt-5 flex justify-end gap-2">
               <button
+                ref={cancel}
                 type="button"
-                onClick={() => setAsking(false)}
+                onClick={close}
                 className={`rounded-md border px-3 py-1.5 text-xs font-medium ${TONES.quiet}`}
               >
                 Cancel

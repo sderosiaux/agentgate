@@ -84,7 +84,17 @@ export function DataTable<T>({
                       <span className="sr-only">{rowLabel?.(row) ?? 'open'}</span>
                     </Link>
                   ) : null}
-                  <span className="relative z-20">{column.cell(row)}</span>
+                  {/*
+                   * `pointer-events-none`, and it is the whole point of this wrapper: it sits
+                   * above the stretched anchor without being its descendant, so without this a
+                   * click landing on the row's own text hit nothing at all — the dead area was
+                   * exactly where a person aims. Genuinely interactive descendants opt back in
+                   * through `[&_a]:pointer-events-auto`, so a link inside a cell still wins over
+                   * the row link covering it.
+                   */}
+                  <span className="pointer-events-none relative z-20 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+                    {column.cell(row)}
+                  </span>
                 </td>
               ))}
             </tr>
