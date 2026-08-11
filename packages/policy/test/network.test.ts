@@ -1,6 +1,7 @@
 import type { NetworkRules } from '@agentgate/shared';
 import { describe, expect, test } from 'vitest';
 import { matchNetworkRules } from '../src/network.js';
+import { normalizeUrl } from '../src/url.js';
 
 const EMPTY: NetworkRules = { allow: [], deny: [] };
 
@@ -137,6 +138,13 @@ describe('matchNetworkRules', () => {
     };
     expect(match(rules, 'api.github.com', '/repos/acme/payments', 'DELETE')).toBe('deny');
     expect(match(rules, 'api.github.com', '/repos/acme/payments', 'GET')).toBe('allow');
+  });
+
+  test('a deny rule is not walked around by a trailing dot on the host', () => {
+    const rules: NetworkRules = { allow: [{ host: '*' }], deny: [{ host: 'internal.acme.com' }] };
+    const { host, path } = normalizeUrl('https://internal.acme.com./secret');
+
+    expect(matchNetworkRules(rules, { host, path, method: 'GET' })).toEqual({ matched: 'deny' });
   });
 
   test('any matching rule in a list is enough', () => {

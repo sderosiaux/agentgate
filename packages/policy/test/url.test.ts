@@ -33,6 +33,17 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://API.GitHub.COM/repos/acme/payments').host).toBe('api.github.com');
   });
 
+  test('drops the trailing dot of a fully qualified name', () => {
+    // DNS resolves `internal.acme.com.` and `internal.acme.com` to the same host, so a deny
+    // rule naming one must not be walked around by writing the other.
+    expect(normalizeUrl('https://internal.acme.com./secret').host).toBe('internal.acme.com');
+    expect(normalizeUrl('https://API.GitHub.COM./repos/acme/payments').host).toBe('api.github.com');
+  });
+
+  test('rejects a host that is nothing but dots', () => {
+    expectRejected('https://./secret');
+  });
+
   test('drops the port, which no matching rule speaks about', () => {
     expect(normalizeUrl('https://api.github.com:8443/repos/acme/payments').host).toBe(
       'api.github.com',

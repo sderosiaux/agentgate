@@ -85,7 +85,10 @@ export function normalizeUrl(raw: string): NormalizedUrl {
     invalid('request url must not carry credentials in its authority');
   }
 
-  if (parsed.hostname === '') {
+  // `example.com.` and `example.com` are the same host to DNS, and url parsing keeps the dot.
+  // Canonicalising here is what stops a deny rule being walked around by writing the fqdn form.
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  if (host === '') {
     invalid('request url must name a host');
   }
 
@@ -118,7 +121,7 @@ export function normalizeUrl(raw: string): NormalizedUrl {
   }
 
   return {
-    host: parsed.hostname.toLowerCase(),
+    host,
     path: `/${segments.join('/')}`,
     protocol: parsed.protocol as 'http:' | 'https:',
   };
