@@ -20,6 +20,46 @@ interface Filters {
   to?: string;
 }
 
+/** The seven filters this page owns, and the only keys it will forward. */
+const FILTER_KEYS = [
+  'agentId',
+  'principalId',
+  'missionId',
+  'resource',
+  'decision',
+  'from',
+  'to',
+] as const;
+
+/**
+ * A search parameter can arrive repeated (`?decision=ALLOW&decision=DENY`), in which case Next
+ * hands over an array. Taking the first is a decision rather than an accident: the previous code
+ * stringified the array into `ALLOW,DENY`, which the management API reads as one nonsense value.
+ */
+function one(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * Reads only the keys this page knows.
+ *
+ * Spreading the search parameters straight into the API call meant any query string an operator
+ * was handed — `?foo=bar` — was forwarded to the management API, which strictly rejects unknown
+ * parameters and answered 400. A link with one stray parameter broke the whole page.
+ */
+function readFilters(query: Record<string, string | string[] | undefined>): Filters {
+  const filters: Filters = {};
+
+  for (const key of FILTER_KEYS) {
+    const value = one(query[key]);
+    if (value !== undefined && value !== '') {
+      filters[key] = value;
+    }
+  }
+
+  return filters;
+}
+
 /**
  * `datetime-local` submits `2026-08-11T14:30`, which the management API rejects: it requires an
  * offset, on the sound principle that a local time is a time nobody can act on. The console
@@ -243,9 +283,11 @@ function FilterBar({
 export default async function AuditPage({
   searchParams,
 }: {
-  searchParams: Promise<Filters & { cursor?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<ReactElement> {
-  const { cursor, ...filters } = await searchParams;
+  const query = await searchParams;
+  const cursor = one(query.cursor);
+  const filters = readFilters(query);
 
   const header = (
     <PageHeader
@@ -263,7 +305,11 @@ export default async function AuditPage({
   try {
     [page, agents, principals, missions] = await Promise.all([
       api.audit({
-        ...filters,
+        agentId: filters.agentId,
+        principalId: filters.principalId,
+        missionId: filters.missionId,
+        resource: filters.resource,
+        decision: filters.decision,
         from: toInstant(filters.from),
         to: toInstant(filters.to),
         cursor,

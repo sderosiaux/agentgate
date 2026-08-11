@@ -17,6 +17,14 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]['key'];
 
+/**
+ * Asked for nothing, the gateway gives 50 — and a queue whose whole purpose is that nothing
+ * waiting goes unnoticed must not quietly stop at 50. Asking for the ceiling it allows, and
+ * paging past even that when it says there is more, is what makes this tab's emptiness mean
+ * something.
+ */
+const QUEUE_LIMIT = 200;
+
 interface Context {
   intent: string | undefined;
   principalId: string | undefined;
@@ -183,7 +191,7 @@ export default async function ApprovalsPage({
   try {
     [approvals, missions, agents, principals] = await Promise.all([
       tab === 'queue'
-        ? api.approvals({ status: 'pending' })
+        ? api.approvals({ status: 'pending', limit: QUEUE_LIMIT, cursor: query.cursor })
         : api.approvals(query.cursor === undefined ? {} : { cursor: query.cursor }),
       api.missions(),
       api.agents(),
@@ -251,11 +259,23 @@ export default async function ApprovalsPage({
               no grant. Until someone decides, the agent holds a 202 and nothing has been forwarded.
             </EmptyState>
           ) : (
-            <ul>
-              {rows.map((approval) => (
-                <PendingCard key={approval.id} approval={approval} context={context(approval)} />
-              ))}
-            </ul>
+            <>
+              <ul>
+                {rows.map((approval) => (
+                  <PendingCard key={approval.id} approval={approval} context={context(approval)} />
+                ))}
+              </ul>
+              {approvals.nextCursor === null ? null : (
+                <div className="border-review-line bg-review-soft border-t px-5 py-3">
+                  <Link
+                    href={`/approvals?cursor=${encodeURIComponent(approvals.nextCursor)}`}
+                    className="text-review text-xs font-medium underline-offset-4 hover:underline"
+                  >
+                    More are waiting beyond this page →
+                  </Link>
+                </div>
+              )}
+            </>
           )
         ) : (
           <>
