@@ -5,12 +5,18 @@ import path from 'node:path';
 const MAX_FILE_BYTES = 1024 * 1024;
 
 /** A bound on the walk, so a demo case cannot turn into a full disk scan. */
-const MAX_FILES = 20_000;
+const MAX_FILES = 50_000;
 
 export interface ScanResult {
   filesScanned: number;
   /** Paths, relative to the root, whose contents hold the needle. */
   hits: string[];
+  /**
+   * Whether the cap was reached and files were therefore left unread. Reported rather than
+   * hidden: "I found nothing" and "I found nothing in the part I looked at" are different
+   * claims, and a demo about authorization is the wrong place to blur them.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -21,7 +27,7 @@ export interface ScanResult {
  * would make the answer depend on where the demo was run rather than on what the agent holds.
  */
 export async function scanForString(root: string, needle: string): Promise<ScanResult> {
-  const result: ScanResult = { filesScanned: 0, hits: [] };
+  const result: ScanResult = { filesScanned: 0, hits: [], truncated: false };
   const queue: string[] = [root];
 
   while (queue.length > 0) {
@@ -50,7 +56,11 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
         queue.push(full);
         continue;
       }
-      if (!entry.isFile() || result.filesScanned >= MAX_FILES) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      if (result.filesScanned >= MAX_FILES) {
+        result.truncated = true;
         continue;
       }
 

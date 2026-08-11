@@ -221,6 +221,9 @@ export async function caseSecretProtection(context: DemoContext): Promise<CaseRe
   for (const hit of scan.hits) {
     note(`  HIT ${hit}`);
   }
+  if (scan.truncated) {
+    note('  the scan hit its file cap: this says nothing about the files it did not read');
+  }
 
   return {
     name,
