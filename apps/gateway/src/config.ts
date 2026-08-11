@@ -18,11 +18,35 @@ export interface GatewayConfig {
   environment: string;
 }
 
+/**
+ * The shortest admin token the gateway will start with.
+ *
+ * Not a guess at entropy: the log scrubber ignores any registered value shorter than
+ * `MIN_SENSITIVE_LENGTH` (8), because scrubbing ordinary words out of every line would destroy
+ * more than it protects. A six-character admin token would therefore be a credential that can
+ * never be redacted — it would pass through any line that happened to carry it. Sixteen sits
+ * clear of that floor and is unremarkable for a bearer token nobody has to type twice.
+ */
+export const ADMIN_TOKEN_MIN_LENGTH = 16;
+
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
 
   if (value === undefined || value === '') {
     throw new Error(`${name} is not set: the gateway cannot start without it`);
+  }
+
+  return value;
+}
+
+/** The value is never echoed: a refusal that quotes the token writes it to a console log. */
+function adminToken(env: NodeJS.ProcessEnv): string {
+  const value = required(env, 'ADMIN_TOKEN');
+
+  if (value.length < ADMIN_TOKEN_MIN_LENGTH) {
+    throw new Error(
+      `ADMIN_TOKEN must be at least ${String(ADMIN_TOKEN_MIN_LENGTH)} characters: a shorter one cannot be redacted from the logs`,
+    );
   }
 
   return value;
@@ -65,7 +89,7 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     // Not optional, and not defaulted: a gateway that started with an empty admin token would
     // serve the management API to anyone who sends an empty bearer, which is worse than a
     // gateway that refuses to start.
-    adminToken: required(env, 'ADMIN_TOKEN'),
+    adminToken: adminToken(env),
     policyEngine,
     ...(opaUrl === undefined || opaUrl === '' ? { opaUrl: undefined } : { opaUrl }),
     environment: env['ENVIRONMENT'] ?? 'development',

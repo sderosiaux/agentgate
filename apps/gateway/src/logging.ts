@@ -6,7 +6,7 @@ const CENSOR = '[REDACTED]';
  * Values short enough to be ordinary words are not registered: scrubbing `admin` out of every
  * log line would destroy far more than it protects, and a credential that short is not one.
  */
-const MIN_SENSITIVE_LENGTH = 8;
+export const MIN_SENSITIVE_LENGTH = 8;
 
 /**
  * Every credential value the gateway has decrypted in this process. `SecretStore` fills it on

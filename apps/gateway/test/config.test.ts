@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
-import { loadGatewayConfig } from '../src/config.js';
+import { ADMIN_TOKEN_MIN_LENGTH, loadGatewayConfig } from '../src/config.js';
+import { MIN_SENSITIVE_LENGTH } from '../src/logging.js';
 
 const VALID: NodeJS.ProcessEnv = {
   AGENTGATE_MASTER_KEY: Buffer.alloc(32, 0x11).toString('base64'),
@@ -48,6 +49,27 @@ test('a gateway with no admin token refuses to start', () => {
   // An empty one is the dangerous case: the guard would then accept an empty bearer.
   expect(() => loadGatewayConfig(withoutAdminToken)).toThrow(/ADMIN_TOKEN/);
   expect(() => loadGatewayConfig({ ...VALID, ADMIN_TOKEN: '' })).toThrow(/ADMIN_TOKEN/);
+});
+
+test('an admin token the log scrubber would ignore refuses to start', () => {
+  // Anything shorter than the scrubber's own threshold could never be redacted from a log
+  // line, so the bound the config enforces has to sit above it.
+  expect(ADMIN_TOKEN_MIN_LENGTH).toBeGreaterThanOrEqual(MIN_SENSITIVE_LENGTH);
+
+  expect(() => loadGatewayConfig({ ...VALID, ADMIN_TOKEN: 'hunter2' })).toThrow(
+    new RegExp(`ADMIN_TOKEN.*${String(ADMIN_TOKEN_MIN_LENGTH)}`),
+  );
+  expect(() =>
+    loadGatewayConfig({ ...VALID, ADMIN_TOKEN: 'a'.repeat(ADMIN_TOKEN_MIN_LENGTH) }),
+  ).not.toThrow();
+});
+
+test('the refusal names the constraint without quoting the token back', () => {
+  const tooShort = 'sekret42';
+
+  expect(() => loadGatewayConfig({ ...VALID, ADMIN_TOKEN: tooShort })).toThrow(
+    expect.objectContaining({ message: expect.not.stringContaining(tooShort) }),
+  );
 });
 
 test('the signing key stays optional: a gateway that only verifies is a valid one', () => {
