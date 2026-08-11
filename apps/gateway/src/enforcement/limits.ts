@@ -10,8 +10,7 @@ export interface UsageSnapshot {
 export type LimitReason = 'max_requests' | 'rpm';
 
 export type ConsumeResult =
-  | { ok: true; usage: UsageSnapshot }
-  | { ok: false; reason: LimitReason; usage: UsageSnapshot };
+  { ok: true; usage: UsageSnapshot } | { ok: false; reason: LimitReason; usage: UsageSnapshot };
 
 const MINUTE_MS = 60_000;
 

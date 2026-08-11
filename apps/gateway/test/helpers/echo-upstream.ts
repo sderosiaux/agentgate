@@ -1,0 +1,64 @@
+import Fastify, { type FastifyInstance } from 'fastify';
+
+export interface EchoedRequest {
+  method: string;
+  /** The path and query exactly as the upstream received them. */
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string | null;
+}
+
+export interface EchoUpstream {
+  baseUrl: string;
+  /** Every request the upstream saw, in order. */
+  received: EchoedRequest[];
+  close(): Promise<void>;
+}
+
+/**
+ * An upstream that answers with what it was sent. `buildMockGithub` proves the credential is
+ * usable; this proves what exactly travels — which headers, which url, which body.
+ */
+export async function startEchoUpstream(): Promise<EchoUpstream> {
+  const received: EchoedRequest[] = [];
+  const app: FastifyInstance = Fastify();
+
+  // Bodies stay raw strings: the point is to compare bytes, not to parse them. The built-in
+  // json parser has to go first, otherwise it claims every `application/json` body.
+  app.removeAllContentTypeParsers();
+  app.addContentTypeParser('*', { parseAs: 'string' }, (_request, body, done) => {
+    done(null, body);
+  });
+
+  // An upstream that takes longer than any timeout a test would set.
+  app.all('/slow', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    return { echoed: true };
+  });
+
+  app.all('/*', async (request, reply) => {
+    received.push({
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      body: typeof request.body === 'string' ? request.body : null,
+    });
+
+    return reply
+      .header('set-cookie', 'session=must-not-come-back')
+      .header('x-secret-upstream-header', 'must-not-come-back')
+      .send({ echoed: true });
+  });
+
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const address = app.server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('echo upstream did not bind a tcp port');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${String(address.port)}`,
+    received,
+    close: () => app.close(),
+  };
+}
