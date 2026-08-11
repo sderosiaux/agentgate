@@ -178,6 +178,15 @@ test('a credential reflected into a response header does not reach the agent eit
   expect(result.headers['etag']).toContain('[REDACTED]');
 });
 
+test('a credential reflected without its scheme is caught too', async () => {
+  // What is registered is the credential, not the header it rides in, so an upstream that
+  // strips `Bearer ` and hands back the bare value gains nothing by it.
+  const result = await toEcho();
+
+  expect(JSON.parse(result.body)['bare']).toBe('[REDACTED]');
+  expect(result.headers['link']).toBe('[REDACTED]');
+});
+
 test('the bytes charged to the mission are the bytes the upstream actually sent', async () => {
   // Scrubbing shortens the body; the network moved the original, and that is what a byte
   // budget is about.

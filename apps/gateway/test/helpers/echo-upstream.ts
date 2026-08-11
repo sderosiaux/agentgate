@@ -47,11 +47,16 @@ export async function startEchoUpstream(): Promise<EchoUpstream> {
     // Reflects what it was sent, in the body and in a safelisted response header. An upstream
     // that hands the injected credential straight back is the case the gateway has to survive:
     // whatever comes back reaches the agent, and the agent must never hold a credential.
+    // `bare` drops the scheme, so the reflection is the credential itself rather than the
+    // header it travelled in: a scrub that only knew how to match `Bearer <value>` would miss it.
+    const bare = String(request.headers.authorization ?? '').replace(/^Bearer /i, '');
+
     return reply
       .header('set-cookie', 'session=must-not-come-back')
       .header('x-secret-upstream-header', 'must-not-come-back')
       .header('etag', String(request.headers.authorization ?? 'none'))
-      .send({ echoed: true, headers: request.headers });
+      .header('link', bare)
+      .send({ echoed: true, headers: request.headers, bare });
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
