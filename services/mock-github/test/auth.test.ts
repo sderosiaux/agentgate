@@ -72,10 +72,9 @@ test('building the service without a token is a programming error', () => {
   expect(() => buildMockGithub({ token: '' })).toThrow(/token/i);
 });
 
-test('nothing about the credentials reaches the logs on an auth failure', async () => {
+function buildWithCapturedLogs(): { app: FastifyInstance; lines: string[] } {
   const lines: string[] = [];
-  const presented = 'presented-token-abcdef';
-  const logged = buildMockGithub({
+  const app = buildMockGithub({
     token: TOKEN,
     logger: {
       level: 'trace',
@@ -86,6 +85,13 @@ test('nothing about the credentials reaches the logs on an auth failure', async 
       },
     },
   });
+
+  return { app, lines };
+}
+
+test('nothing about the credentials reaches the logs on an auth failure', async () => {
+  const presented = 'presented-token-abcdef';
+  const { app: logged, lines } = buildWithCapturedLogs();
   await logged.ready();
 
   const response = await logged.inject({
@@ -102,4 +108,20 @@ test('nothing about the credentials reaches the logs on an auth failure', async 
   const output = lines.join('');
   expect(output).not.toContain(TOKEN);
   expect(output).not.toContain(presented);
+});
+
+test('a token smuggled into the query string never reaches the logs either', async () => {
+  const { app: logged, lines } = buildWithCapturedLogs();
+  await logged.ready();
+
+  const response = await logged.inject({
+    method: 'GET',
+    url: `/repos/acme/payments?access_token=${TOKEN}`,
+    headers: { authorization: `Bearer ${TOKEN}` },
+  });
+  await logged.close();
+
+  expect(response.statusCode).toBe(200);
+  expect(lines.length).toBeGreaterThan(0);
+  expect(lines.join('')).not.toContain(TOKEN);
 });

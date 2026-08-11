@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import {
   createdPullRequest,
   paymentsIssue423,
@@ -22,6 +22,11 @@ function tokenMatches(presented: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Everything before the query string, which is the only part safe to log. */
+function pathOf(url: string): string {
+  return url.split('?')[0] ?? url;
+}
+
 export function buildMockGithub(options: MockGithubOptions): FastifyInstance {
   const { token, ...serverOptions } = options;
 
@@ -29,7 +34,20 @@ export function buildMockGithub(options: MockGithubOptions): FastifyInstance {
     throw new Error('buildMockGithub requires a non-empty token');
   }
 
-  const app = Fastify(serverOptions);
+  const app = Fastify({
+    ...serverOptions,
+    // Fastify's built-in request logs print the raw url, so a token smuggled into a
+    // query string would land in the compose logs sub-plan 11 greps. We log our own
+    // line with the query string dropped instead.
+    logController: new LogController({ disableRequestLogging: true }),
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    request.log.info(
+      { method: request.method, path: pathOf(request.url), statusCode: reply.statusCode },
+      'request completed',
+    );
+  });
 
   // Audit correlation: the gateway tags each forwarded call, the tag comes back on
   // the response so both sides of the hop can be lined up in the audit trail.
@@ -54,7 +72,7 @@ export function buildMockGithub(options: MockGithubOptions): FastifyInstance {
       // No credential material in this line, and no query string either: sub-plan 11
       // greps every compose log for the secret and fails the build on a hit.
       request.log.warn(
-        { method: request.method, path: request.url.split('?')[0] },
+        { method: request.method, path: pathOf(request.url) },
         'rejected request: bad credentials',
       );
 
