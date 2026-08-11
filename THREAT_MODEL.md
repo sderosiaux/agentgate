@@ -97,9 +97,11 @@ Requests-per-minute is a fixed one-minute window: one `RateWindow` row per missi
 
 ### The gateway image is a build image
 
-`apps/gateway/Dockerfile` copies the whole workspace into the runtime stage, so the running container carries `tsx`, the Prisma CLI, `vitest` and the mock-github sources. The entrypoint needs the Prisma CLI to migrate and seed, which is how it started; the rest came along with it. It also **runs as root**, where the web image drops to `USER node`.
+`apps/gateway/Dockerfile` copies the whole workspace into the runtime stage, so the running container carries `tsx`, the Prisma CLI, `vitest` and the mock-github sources. The entrypoint needs the Prisma CLI to migrate and seed, which is how it started; the rest came along with it.
 
-Neither is exploitable on its own. Both widen what an attacker who reached code execution can do next, in the one container that holds the master key.
+It also **runs as root**, and it is not alone: **demo-agent and mock-github run as root too**. Only the web image drops privileges, with a `USER node` its Next standalone output made easy. Three of the four should have that line and do not.
+
+None of this is exploitable on its own. All of it widens what an attacker who reached code execution can do next, and the gateway is the container that holds the master key.
 
 ### `/api/docs` is public
 

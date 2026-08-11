@@ -72,21 +72,25 @@ make demo                   # the seven cases below
 
 Then open the console at <http://localhost:3000>.
 
-For anything past a local demo, run `node scripts/generate-env.mjs` instead of copying the example file, and read [THREAT_MODEL.md](THREAT_MODEL.md) first. Every secret in `.env.example` is in the public repository, including the master encryption key and the admin token.
+If 3000, 8080, 5432 or 8181 are already taken on your machine — and 3000 and 8080 usually are — set `WEB_PORT`, `GATEWAY_PORT`, `POSTGRES_PORT` or `OPA_PORT` in `.env` before bringing the stack up. Every one of them is published on `127.0.0.1` only; `GATEWAY_BIND` is the single deliberate way out of that, and [THREAT_MODEL.md](THREAT_MODEL.md) explains what you are accepting when you use it.
+
+For anything past a local demo, run `node scripts/generate-env.mjs` instead of copying the example file, and read the threat model first. Every secret in `.env.example` is in the public repository, including the master encryption key and the admin token.
 
 No Docker? `make demo-host` runs the same demo as local processes against a PostgreSQL you point `DATABASE_URL_TEST` at. Case 0 is the one thing it cannot prove, and it says so instead of passing.
 
 Other targets: `make setup` (install + generate `.env`), `make test` (every suite, leak scan included), `make db-migrate` (migrate both databases from the host), `make db-reset` (drop and rebuild them, reseed the demo), `make reset` (tear down compose and delete its volume).
 
+One warning about `make db-reset`, because it will look broken otherwise. It calls `prisma migrate reset`, and Prisma 7.9.1 refuses that command outright when it detects that a coding agent is driving the shell — Claude Code, Codex, Cursor, Gemini and Copilot all trip it, on an environment variable each of them sets. That is a deliberate guard against an agent dropping a production database, and it is doing its job. Run it from your own terminal instead. If you genuinely need it from inside an agent session, Prisma's error message names the consent variable it wants and expects you to have actually asked the human first.
+
 `make test` starts Postgres through compose before it runs anything, so on a machine without a Docker daemon it stops at the first line. Bring your own Postgres, point `DATABASE_URL_TEST` and `DATABASE_URL_DEMO` at it, then `make db-migrate && pnpm -r test` gets you the same suites.
 
-CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml): types and formatting, `opa test` and `opa check --strict`, every suite against a real Postgres, the OPA parity suite with a live OPA and a hard failure if a single test in that package skipped, and the compose demo followed by a leak scan that reads the container logs.
+CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml): types and formatting, `opa test` and `opa check --strict`, every suite against a real Postgres, the parity suites against a live OPA with a hard failure if either package skipped a single test, and the compose demo followed by a leak scan that reads the container logs.
 
 ---
 
 ## The demo
 
-Seven cases. One agent, one mission, one alias, and a gateway that answers each request on its own terms. Everything quoted below is real output from `make demo-host` on a freshly seeded database, trimmed only of the build noise at the top.
+Seven cases. One agent, one mission, one alias, and a gateway that answers each request on its own terms. Everything quoted below is real output from `make demo-host` on a freshly seeded database. It is trimmed: the build log at the top, the agent's inherited `PATH` and locale variables, the middle of the mission token, and the `DEMO_MARKER` lines the orchestrator reads to know when to approve and when to expire. Nothing else is cut, and nothing is reworded.
 
 The mission the agent is given ([`apps/gateway/prisma/demo-mission.json`](apps/gateway/prisma/demo-mission.json)):
 
@@ -142,7 +146,7 @@ scanned 34 files under .../apps/demo-agent for "super-secret": 0 hits
   not read, and therefore not claimed about: 5 symlinks
 ```
 
-An alias, a gateway URL and a mission token. That is the whole inventory.
+An alias, a gateway URL and a mission token. In the container that is the whole inventory, because the demo agent's environment is built rather than inherited. This is a host run, so the agent also carries whatever the parent shell exported — `PATH` and a locale variable here, and potentially your own secrets on another machine. The case greps every value it finds either way, which is why it can still say what it says.
 
 ### Case 3 — A repository the credential could read
 
@@ -235,7 +239,11 @@ The Credentials page lists aliases, providers, logical hosts and injection metho
 
 ![Credentials](docs/screenshots/credentials.png)
 
-There are also Agents, Missions, Policies and a filterable Audit trail.
+The Audit trail is the whole thing, newest first, filterable by agent, principal, mission, resource, decision and time range. Every row opens onto the decision view above.
+
+![Audit](docs/screenshots/audit.png)
+
+There are also Agents, Missions and Policies pages.
 
 ---
 
@@ -247,6 +255,8 @@ The OpenAPI 3.1 document is generated from the same zod schemas the routes valid
 
 - browsable UI: <http://localhost:8080/api/docs>
 - document: <http://localhost:8080/api/docs/json>
+
+Those two addresses assume the compose stack, where the gateway is published on `GATEWAY_PORT` and stays up. A `make demo-host` run is different: its gateway binds `DEMO_GATEWAY_PORT` (8099 by default), and the orchestrator kills it when the last case finishes, so there is nothing on either URL by the time you go looking. To browse the document without Docker, start a gateway yourself after `make db-migrate` and leave it running: `DATABASE_URL=$DATABASE_URL_DEMO PORT=8080 node apps/gateway/dist/index.js`.
 
 Both are served without the admin token, deliberately, and the trade-off is written up in the threat model. Errors are machine-readable:
 
@@ -333,7 +343,7 @@ scripts/        demo-orchestrator.mjs, leak-scan.mjs, generate-env.mjs
 3. Generate fresh secrets. The committed ones are public.
 4. Terminate TLS in front of the gateway.
 
-`scripts/leak-scan.mjs` runs the demo and then greps the transcript, both databases, every management GET, the OpenAPI document, every console page and `docker compose logs` for the upstream token and the admin token. One hit anywhere is a non-zero exit. It runs as part of `make test`, and it writes its verdict to `artifacts/leak-report.txt` as well as to the terminal — with the values themselves redacted out, because a scanner that prints the secret into a log everyone can read has leaked it on everyone's behalf.
+`scripts/leak-scan.mjs` runs the demo and then greps the transcript, both databases, every management GET, the OpenAPI document, every console page and `docker compose logs` for the upstream token and the admin token. One hit anywhere is a non-zero exit. It runs as part of `make test`, and it writes its verdict to `artifacts/leak-report.txt` as well as to the terminal, with the values themselves redacted out: a scanner that prints the secret into a log everyone can read has leaked it on everyone's behalf.
 
 ---
 
@@ -364,17 +374,19 @@ Two asymmetries worth knowing even when Docker works: case 0 proves isolation pa
 
 ### Test results
 
-`pnpm -r test` passes 626 and skips 45: mock-github 20, shared 20, auth 13, policy 163 (+44 skipped), gateway 285 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 7.
+`pnpm -r test` passes 627 and skips 45: mock-github 20, shared 20, auth 13, policy 163 (+44 skipped), gateway 285 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 8.
 
-With `OPA_URL` pointing at a live OPA it is 671 passing and nothing skipped. Those 45 are the parity suites, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 44 and fails.
+With `OPA_URL` pointing at a live OPA it is 672 passing and nothing skipped. Those 45 are the parity suites, 44 in `packages/policy` and one in the gateway, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 45 (44 in `packages/policy`, one in the gateway) and fails.
 
 `opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.
 
 The leak scan is clean over a real host-mode run: the demo transcript with every service's own stdout in it, 18 tables across both databases (about 12 MB of JSON), 15 management responses including the OpenAPI document, 10 console pages, and the gateway's log output during the sweep. Its Docker stage skipped, loudly, as described above.
 
-One caveat on that, because it is the kind of thing worth knowing about a security check. An early run of the scan reported five occurrences, and the locations were lost to a truncated terminal before anyone read them. Nine subsequent runs, including the exact sequence that preceded it and one straight after a rebuild, came back clean; a separate test that points the console at a dead gateway and reads all seven error pages found no token either. So the finding is unreproduced and unexplained rather than fixed. The scan now writes its verdict to a file precisely so this cannot happen twice.
+It has also been observed failing on real data, which is the part that makes a clean result mean something. A reviewer put the upstream token into the `intent` of a live mission row and left it there for two minutes. The scan caught all five occurrences it produced, in three different stages: the `Mission` table in the database dump, `GET /api/v1/missions` and `GET /api/v1/missions/{id}`, and the console's `/missions` page twice over, once in the HTML and once in the React payload embedded beneath it. The report named every location and printed the value in none of them.
 
-Three structural greps also come back empty: no module under the enforcement tree imports anything from the management tree, no `console.log` exists anywhere in the gateway source, and the upstream token appears nowhere outside `.env.example`, the SPEC, the plan documents, test fixtures and the leak scanner's own list of things to hunt for.
+That run also exposed a gap of its own. Its findings went to stderr through a truncated pipe and were gone before anyone read them, which is why the scan now writes `artifacts/leak-report.txt` on every run.
+
+Three structural greps also come back empty: no module under the enforcement tree imports anything from the management tree, the gateway source contains no `console.log` call (the string appears once, in a comment explaining why a credential does not show up in one), and the upstream token appears nowhere outside `.env.example`, the SPEC, the plan documents, test fixtures and the leak scanner's own list of things to hunt for.
 
 ## Roadmap
 
