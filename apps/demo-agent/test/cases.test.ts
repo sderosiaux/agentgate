@@ -110,13 +110,29 @@ describe('case 2 — secret protection', () => {
 });
 
 describe('case 3 — unauthorized repository', () => {
-  it('passes on a denial', async () => {
-    const context = contextFor(new StubGate([denied('repository is outside the mission')]));
+  it('passes when the mission scope is what refused it', async () => {
+    const context = contextFor(
+      new StubGate([denied('resource github:acme/secret-project is not in the mission scope')]),
+    );
 
     const result = await caseUnauthorizedRepo(context);
 
     expect(result.pass).toBe(true);
-    expect(result.evidence.join('\n')).toContain('repository is outside the mission');
+    expect(result.evidence.join('\n')).toContain('is not in the mission scope');
+    expect(result.evidence.join('\n')).toContain('the credential can read this repository');
+  });
+
+  it('fails on a denial that never reached the policy engine', async () => {
+    // What a mission with no route to the wider org answers: the same 403, and a demo that
+    // would be claiming the policy blocked something the network had already refused to carry.
+    const context = contextFor(
+      new StubGate([denied('no network rule allows GET api.github.com/repos/acme/secret-project')]),
+    );
+
+    const result = await caseUnauthorizedRepo(context);
+
+    expect(result.pass).toBe(false);
+    expect(result.evidence.join('\n')).toContain('stopped before the policy engine');
   });
 
   it('fails when the gateway let it through', async () => {

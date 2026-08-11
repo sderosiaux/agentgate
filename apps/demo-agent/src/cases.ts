@@ -90,6 +90,14 @@ export const REPO_URL = 'https://api.github.com/repos/acme/payments';
  */
 const DENIED_ACTION = 'repository.delete';
 
+/**
+ * The repository the mission does not cover (case 3), spelled as the policy engine spells it.
+ * `github:acme/secret-project` appears only in the resource-scope refusal — the network rules
+ * would say `api.github.com/repos/acme/secret-project` — which is what makes it usable as the
+ * difference between "policy refused this" and "nothing ever routed it".
+ */
+const OUT_OF_SCOPE_RESOURCE = 'github:acme/secret-project';
+
 /** What the orchestrator watches stdout for. Any change here is a change to the orchestrator. */
 export const APPROVAL_MARKER = 'DEMO_MARKER:APPROVAL_PENDING';
 export const EXPIRE_MARKER = 'DEMO_MARKER:EXPIRE_MISSION';
@@ -241,7 +249,15 @@ export async function caseSecretProtection(context: DemoContext): Promise<CaseRe
   };
 }
 
-/** Case 3 — the credential could read it; the mission says no. */
+/**
+ * Case 3 — the credential could read it; the mission says no.
+ *
+ * SPEC's claim here is precise: the token the gateway holds *can* read `acme/secret-project`,
+ * and what stops the request is policy. So the mission routes `GET /repos/acme/**` — the
+ * network layer is deliberately coarse — and the refusal has to come from the resource scope.
+ * A denial that named no resource would mean the request died at the network rules, which
+ * demonstrates the opposite: that this repository was never reachable in the first place.
+ */
 export async function caseUnauthorizedRepo(context: DemoContext): Promise<CaseResult> {
   const name = CASE_NAMES.unauthorizedRepo;
   const { lines, note } = recorder(context);
@@ -260,11 +276,25 @@ export async function caseUnauthorizedRepo(context: DemoContext): Promise<CaseRe
   } catch (error) {
     note(`→ ${describe(error)}`);
 
+    const namesTheResource =
+      error instanceof AgentGateSdkError && error.reason.includes(OUT_OF_SCOPE_RESOURCE);
+
+    note(
+      namesTheResource
+        ? `the credential can read this repository and the network would carry the request: the mission's resource scope is what refused it`
+        : `the refusal does not name ${OUT_OF_SCOPE_RESOURCE}: this request was stopped before the policy engine saw it`,
+    );
+
     if (error instanceof AgentGateSdkError) {
       note(`request ${error.requestId ?? 'unknown'} is in the audit trail as a denial`);
     }
 
-    return { name, pass: error instanceof AccessDeniedError, skipped: false, evidence: lines };
+    return {
+      name,
+      pass: error instanceof AccessDeniedError && namesTheResource,
+      skipped: false,
+      evidence: lines,
+    };
   }
 }
 

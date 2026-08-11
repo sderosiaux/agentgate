@@ -55,7 +55,9 @@ const MISSION_SCOPE = {
   },
   network: {
     allow: [
-      { host: 'api.github.com', path: '/repos/acme/payments/**', methods: ['GET'] },
+      // Coarser than the resource scope, so case 3's read of `acme/secret-project` reaches the
+      // policy engine instead of dying at the network rules. Identical to the seed.
+      { host: 'api.github.com', path: '/repos/acme/**', methods: ['GET'] },
       { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
       // Case 5 is about the policy refusing a deletion, not about the network never routing
       // one. Kept identical to the seed (apps/gateway/prisma/seed.ts): a demo run must not be

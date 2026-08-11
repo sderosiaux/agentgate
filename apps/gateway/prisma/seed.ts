@@ -104,7 +104,12 @@ export async function seed(prisma: PrismaClient): Promise<void> {
       },
       network: {
         allow: [
-          { host: 'api.github.com', path: '/repos/acme/payments/**', methods: ['GET'] },
+          // The whole org, on GET, on purpose: the network layer here is coarser than the
+          // mission's resource scope, so a read of `acme/secret-project` is carried as far as
+          // the policy engine and refused there (SPEC demo case 3 — "the credential could
+          // access it; policy blocks it"). A rule narrowed to `payments` would refuse the same
+          // request one stage earlier and demonstrate the opposite.
+          { host: 'api.github.com', path: '/repos/acme/**', methods: ['GET'] },
           { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
           // Routed on purpose, so that what refuses a repository deletion is the mission's
           // `deniedActions` list and not the absence of a route. The two are both a 403 to the
