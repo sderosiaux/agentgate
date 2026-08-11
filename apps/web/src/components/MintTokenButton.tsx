@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactElement } from 'react';
+import { absoluteTime } from '@/lib/format';
 import { ActionButton } from './ActionButton';
 
 interface Minted {
@@ -31,8 +32,8 @@ export function MintTokenButton({ missionId }: { missionId: string }): ReactElem
           <span className="text-ink block font-medium">Session opened</span>
           <span className="ident text-ink-muted block">{String(minted.sessionId ?? '—')}</span>
           <span className="text-ink-faint block">
-            expires {String(minted.expiresAt ?? '—')} · the token went to the agent, not to this
-            page
+            expires {typeof minted.expiresAt === 'string' ? absoluteTime(minted.expiresAt) : '—'} ·
+            the token went to the agent, not to this page
           </span>
         </span>
       )}

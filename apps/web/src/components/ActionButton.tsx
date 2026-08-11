@@ -101,7 +101,9 @@ export function ActionButton({
         {working ? (pendingLabel ?? 'Working…') : label}
       </button>
 
-      {error === null ? null : (
+      {/* Only outside the dialog: an overlay would otherwise cover the one line explaining why
+          the thing the human just confirmed did not happen. */}
+      {error === null || asking ? null : (
         <span role="alert" className="text-deny mt-1.5 max-w-56 text-xs leading-snug">
           {error}
         </span>
@@ -117,6 +119,14 @@ export function ActionButton({
           >
             <h2 className="text-ink text-sm font-semibold">{confirm.title}</h2>
             <div className="text-ink-muted mt-2 text-sm leading-relaxed">{confirm.body}</div>
+            {error === null ? null : (
+              <p
+                role="alert"
+                className="border-deny-line bg-deny-soft text-deny mt-4 rounded border px-3 py-2 text-xs leading-snug"
+              >
+                {error}
+              </p>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"

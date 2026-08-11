@@ -66,9 +66,10 @@ describe('the client bundle', () => {
     expect(carriers).toEqual([]);
   });
 
-  it('does not ship the gateway address to the browser either', () => {
-    // Not a secret, but it is the other half of the pair: a browser that knows neither cannot be
-    // pointed at the management API at all, whatever it does with a stolen session.
+  it('holds no management API path, so no client code calls the gateway directly', () => {
+    // The other half of the same rule. Every control in the console posts to a route handler
+    // under `/api/`, and the `/api/v1/` prefix belongs to the gateway alone — a client chunk
+    // carrying one would mean some button had learned to skip the server.
     const carriers = filesUnder(staticDir).filter((file) =>
       readFileSync(file, 'utf8').includes('/api/v1/'),
     );
