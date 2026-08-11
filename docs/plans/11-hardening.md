@@ -25,20 +25,20 @@ Any hit → exit 1 with location. Vitest wrapper asserts exit 0 so it shows in `
 
 Table per SPEC threat + status ∈ {✅ mitigated in prototype, ⚠️ partially, ❌ deployment-level control required}:
 
-| Threat | Status | Mechanism / required control |
-|---|---|---|
-| Agent reads real credentials | ✅ | Broker: secrets only decrypt post-ALLOW in gateway memory; never in responses/env of agent |
-| Agent tries another repository | ✅ | Resource scope + network path rules (D3 step 5–7) |
-| Agent tries another host | ✅ | Logical-host binding on credential + network rules |
-| Agent changes HTTP method | ✅ | Method in network rules + action mapping |
-| Agent reuses an approval | ✅ | Atomic single-use consume (D7) |
-| Agent reuses expired mission token | ✅ | JWT exp + mission status re-check per request |
-| Secret-like content through allowed endpoints | ❌ | No DLP in MVP (D10); `data` field reserved; needs content inspection |
-| Agent bypasses the gateway | ⚠️ demo / ❌ prod | Demo: internal Docker network; prod: egress firewall/netpol forcing traffic through gateway |
-| Gateway logs credentials | ✅ | Redacting serializer + registered-substring scrub + leak-scan test |
-| Database contains encrypted secrets | ✅ | AES-256-GCM, master key env-only; ❌ key rotation not implemented |
-| Gateway process compromise | ❌ | Out of scope: gateway holds master key + secrets in memory; needs HSM/KMS + isolation in prod |
-| Approval doesn't pin request body | ⚠️ | Grant binds (agent, mission, resource, action), not payload (D7) |
+| Threat                                        | Status            | Mechanism / required control                                                                  |
+| --------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| Agent reads real credentials                  | ✅                | Broker: secrets only decrypt post-ALLOW in gateway memory; never in responses/env of agent    |
+| Agent tries another repository                | ✅                | Resource scope + network path rules (D3 step 5–7)                                             |
+| Agent tries another host                      | ✅                | Logical-host binding on credential + network rules                                            |
+| Agent changes HTTP method                     | ✅                | Method in network rules + action mapping                                                      |
+| Agent reuses an approval                      | ✅                | Atomic single-use consume (D7)                                                                |
+| Agent reuses expired mission token            | ✅                | JWT exp + mission status re-check per request                                                 |
+| Secret-like content through allowed endpoints | ❌                | No DLP in MVP (D10); `data` field reserved; needs content inspection                          |
+| Agent bypasses the gateway                    | ⚠️ demo / ❌ prod | Demo: internal Docker network; prod: egress firewall/netpol forcing traffic through gateway   |
+| Gateway logs credentials                      | ✅                | Redacting serializer + registered-substring scrub + leak-scan test                            |
+| Database contains encrypted secrets           | ✅                | AES-256-GCM, master key env-only; ❌ key rotation not implemented                             |
+| Gateway process compromise                    | ❌                | Out of scope: gateway holds master key + secrets in memory; needs HSM/KMS + isolation in prod |
+| Approval doesn't pin request body             | ⚠️                | Grant binds (agent, mission, resource, action), not payload (D7)                              |
 
 Plus a "deployment requirements" section (force egress through gateway, protect ADMIN_TOKEN, generate fresh keys, TLS in front).
 

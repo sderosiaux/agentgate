@@ -42,7 +42,7 @@ agent:
   type: codex
 mission:
   id: mission_123
-  description: "Fix GitHub issue #423 in repository acme/payments"
+  description: 'Fix GitHub issue #423 in repository acme/payments'
 permissions:
   - resource: github:acme/payments
     actions: [repo.read, branch.create, pull_request.create]
@@ -89,7 +89,7 @@ network:
       path: /repos/acme/payments/pulls
       methods: [POST]
   deny:
-    - host: "*"
+    - host: '*'
 ```
 
 `GET api.github.com/repos/acme/secret-repository` must fail even when the same GitHub credential could access it.
@@ -117,7 +117,7 @@ A mission represents delegated authority:
 id: mission_123
 principal: stephane
 agent: codex_8472
-intent: "Investigate issue #423 and create a pull request"
+intent: 'Investigate issue #423 and create a pull request'
 resources: [github:acme/payments]
 allowed_actions: [repo.read, pull_request.read, branch.create, pull_request.create]
 approval_required: [pull_request.create]
@@ -136,13 +136,13 @@ Evaluates structured context:
 
 ```json
 {
-  "identity": {"principal_id": "user_1", "agent_id": "agent_12", "agent_type": "codex"},
-  "mission": {"id": "mission_123", "intent": "Fix issue #423"},
-  "resource": {"provider": "github", "repository": "acme/payments"},
-  "action": {"type": "pull_request.create", "method": "POST"},
-  "network": {"host": "api.github.com", "path": "/repos/acme/payments/pulls"},
-  "environment": {"name": "development"},
-  "current_state": {"request_count": 42}
+  "identity": { "principal_id": "user_1", "agent_id": "agent_12", "agent_type": "codex" },
+  "mission": { "id": "mission_123", "intent": "Fix issue #423" },
+  "resource": { "provider": "github", "repository": "acme/payments" },
+  "action": { "type": "pull_request.create", "method": "POST" },
+  "network": { "host": "api.github.com", "path": "/repos/acme/payments/pulls" },
+  "environment": { "name": "development" },
+  "current_state": { "request_count": 42 }
 }
 ```
 
@@ -217,14 +217,14 @@ DELETE /repos/acme/payments
 
 ### Demo scenario (`make demo`)
 
-| Case | Request | Expected |
-|---|---|---|
-| 1. Allowed read | `GET /repos/acme/payments/issues/423` | ALLOW, credential injected, request succeeds, audit event |
-| 2. Secret protection | Agent inspects its environment | Only sees alias `github_work`, never the real token |
-| 3. Unauthorized repo | `GET /repos/acme/secret-project` | DENY (credential could access it; policy blocks it) |
-| 4. Approval | `POST /repos/acme/payments/pulls` | 202 REQUIRE_APPROVAL → approve in UI/API → retry succeeds |
-| 5. Dangerous action | `DELETE /repos/acme/payments` | DENY, no credential injected |
-| 6. Mission expiration | Expire mission, repeat case 1 | DENY |
+| Case                  | Request                               | Expected                                                  |
+| --------------------- | ------------------------------------- | --------------------------------------------------------- |
+| 1. Allowed read       | `GET /repos/acme/payments/issues/423` | ALLOW, credential injected, request succeeds, audit event |
+| 2. Secret protection  | Agent inspects its environment        | Only sees alias `github_work`, never the real token       |
+| 3. Unauthorized repo  | `GET /repos/acme/secret-project`      | DENY (credential could access it; policy blocks it)       |
+| 4. Approval           | `POST /repos/acme/payments/pulls`     | 202 REQUIRE_APPROVAL → approve in UI/API → retry succeeds |
+| 5. Dangerous action   | `DELETE /repos/acme/payments`         | DENY, no credential injected                              |
+| 6. Mission expiration | Expire mission, repeat case 1         | DENY                                                      |
 
 ### Web UI
 
@@ -276,13 +276,13 @@ Documented REST APIs for: agents, missions, policies, credentials, approvals, au
 ```typescript
 const agentgate = new AgentGate({
   gatewayUrl: process.env.AGENTGATE_URL,
-  token: process.env.AGENTGATE_TOKEN
+  token: process.env.AGENTGATE_TOKEN,
 });
 
 const response = await agentgate.request({
-  credential: "github_work",
-  method: "GET",
-  url: "https://api.github.com/repos/acme/payments/issues/423"
+  credential: 'github_work',
+  method: 'GET',
+  url: 'https://api.github.com/repos/acme/payments/issues/423',
 });
 ```
 
@@ -366,15 +366,15 @@ So `approval_required` ⊂ `allowed_actions` is the normal shape: the action is 
 
 A GitHub adapter maps `(method, normalized path)` → `(resource, action)`:
 
-| Method + path | Resource | Action |
-|---|---|---|
-| `GET /repos/{o}/{r}` | `github:{o}/{r}` | `repo.read` |
-| `GET /repos/{o}/{r}/issues/{n}` | `github:{o}/{r}` | `issue.read` |
-| `GET /repos/{o}/{r}/pulls` | `github:{o}/{r}` | `pull_request.read` |
-| `POST /repos/{o}/{r}/pulls` | `github:{o}/{r}` | `pull_request.create` |
-| `POST /repos/{o}/{r}/git/refs` | `github:{o}/{r}` | `branch.create` |
-| `PUT /repos/{o}/{r}/pulls/{n}/merge` | `github:{o}/{r}` | `pull_request.merge` |
-| `DELETE /repos/{o}/{r}` | `github:{o}/{r}` | `repository.delete` |
+| Method + path                        | Resource         | Action                |
+| ------------------------------------ | ---------------- | --------------------- |
+| `GET /repos/{o}/{r}`                 | `github:{o}/{r}` | `repo.read`           |
+| `GET /repos/{o}/{r}/issues/{n}`      | `github:{o}/{r}` | `issue.read`          |
+| `GET /repos/{o}/{r}/pulls`           | `github:{o}/{r}` | `pull_request.read`   |
+| `POST /repos/{o}/{r}/pulls`          | `github:{o}/{r}` | `pull_request.create` |
+| `POST /repos/{o}/{r}/git/refs`       | `github:{o}/{r}` | `branch.create`       |
+| `PUT /repos/{o}/{r}/pulls/{n}/merge` | `github:{o}/{r}` | `pull_request.merge`  |
+| `DELETE /repos/{o}/{r}`              | `github:{o}/{r}` | `repository.delete`   |
 
 Unknown route → DENY with `reason: unmapped_action` (never trust agent-provided classification; never fall back to a generic allow). Adapter interface is provider-pluggable (`ProviderAdapter`), GitHub is the only MVP implementation.
 

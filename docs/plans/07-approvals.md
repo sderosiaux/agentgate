@@ -15,15 +15,23 @@
 
 ```typescript
 export interface ApprovalService {
-  createPending(input: { missionId; agentId; resource; action; reason;
-    requestSummary: {method; host; path; bodySize?; contentType?} }): Promise<{approvalId: string}>;
-  approve(id: string, decidedBy: string): Promise<void>;   // pending→approved, grantExpiresAt = now+5min
-  deny(id: string, decidedBy: string): Promise<void>;      // pending→denied
+  createPending(input: {
+    missionId;
+    agentId;
+    resource;
+    action;
+    reason;
+    requestSummary: { method; host; path; bodySize?; contentType? };
+  }): Promise<{ approvalId: string }>;
+  approve(id: string, decidedBy: string): Promise<void>; // pending→approved, grantExpiresAt = now+5min
+  deny(id: string, decidedBy: string): Promise<void>; // pending→denied
   // Atomic single-use consumption (SPEC D7): UPDATE approvals SET status='consumed', consumed_at=now()
   //   WHERE id=$1 AND status='approved' AND grant_expires_at > now()
   //   AND mission_id=$2 AND agent_id=$3 AND resource=$4 AND action=$5  RETURNING id
-  tryConsume(id: string, bind: {missionId; agentId; resource; action}): Promise<
-    "consumed" | "not_found" | "not_approved" | "expired" | "mismatch">;
+  tryConsume(
+    id: string,
+    bind: { missionId; agentId; resource; action },
+  ): Promise<'consumed' | 'not_found' | 'not_approved' | 'expired' | 'mismatch'>;
 }
 ```
 
