@@ -17,6 +17,16 @@
     },
     "plugins": [{ "name": "next" }]
   },
-  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", ".next"]
+  // `.next-canary` is where the client-bundle test builds. Listed here even though nothing
+  // depends on it, because `next build` appends its own generated types directory to this file
+  // when it is absent — and a test run that edits a tracked source file leaves the working tree
+  // dirty for no reason anyone can see.
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next-canary/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next", ".next-canary"]
 }
