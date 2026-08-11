@@ -1,3 +1,6 @@
 # Next.js build output and its type generation.
 .next/
 next-env.d.ts
+
+# Incremental typecheck state.
+tsconfig.tsbuildinfo
