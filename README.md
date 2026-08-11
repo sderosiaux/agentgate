@@ -370,6 +370,10 @@ With `OPA_URL` pointing at a live OPA it is 671 passing and nothing skipped. Tho
 
 `opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.
 
+The leak scan is clean over a real host-mode run: the demo transcript with every service's own stdout in it, 18 tables across both databases (about 10 MB of JSON), 15 management responses including the OpenAPI document, 10 console pages, and the gateway's log output during the sweep. Its Docker stage skipped, loudly, as described above.
+
+Three structural greps also come back empty: no module under the enforcement tree imports anything from the management tree, no `console.log` exists anywhere in the gateway source, and the upstream token appears nowhere outside `.env.example`, the SPEC, the plan documents, test fixtures and the leak scanner's own list of things to hunt for.
+
 ## Roadmap
 
 Adapters are the obvious next axis: AWS, Kubernetes, PostgreSQL, Kafka, MCP. `ProviderAdapter` is a real seam with one implementation behind it, and the pipeline denies anything unmapped rather than falling through, so a second adapter is additive.
