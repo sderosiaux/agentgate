@@ -2,21 +2,64 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 /** Big enough for any source file, small enough that a stray archive is not read into memory. */
-const MAX_FILE_BYTES = 1024 * 1024;
+export const MAX_FILE_BYTES = 1024 * 1024;
 
 /** A bound on the walk, so a demo case cannot turn into a full disk scan. */
 const MAX_FILES = 50_000;
+
+/**
+ * What the scan did not look inside, in the three ways it can happen.
+ *
+ * Reported rather than hidden, for the same reason the file cap is: "I found nothing" and "I
+ * found nothing in the part I read" are different claims, and a demo about authorization is
+ * the wrong place to blur them. A reader who knows a 2 MiB blob went unread can go and look at
+ * it; one who is only shown "0 hits" cannot.
+ */
+export interface ScanExclusions {
+  /** Files larger than {@link MAX_FILE_BYTES}. */
+  overSizeCap: number;
+  /** Links, and therefore whatever they point at. */
+  symlinks: number;
+  /** Files left unread because the walk hit its own ceiling. */
+  overFileCap: number;
+  /** Directories this process could not list. */
+  unreadable: number;
+}
 
 export interface ScanResult {
   filesScanned: number;
   /** Paths, relative to the root, whose contents hold the needle. */
   hits: string[];
-  /**
-   * Whether the cap was reached and files were therefore left unread. Reported rather than
-   * hidden: "I found nothing" and "I found nothing in the part I looked at" are different
-   * claims, and a demo about authorization is the wrong place to blur them.
-   */
-  truncated: boolean;
+  excluded: ScanExclusions;
+}
+
+/** Whether anything at all was left out, i.e. whether the result needs a caveat. */
+export function hasExclusions(excluded: ScanExclusions): boolean {
+  return Object.values(excluded).some((count) => count > 0);
+}
+
+/** The caveat, in words, listing only the kinds that actually occurred. */
+export function describeExclusions(excluded: ScanExclusions): string {
+  const parts: string[] = [];
+
+  if (excluded.overSizeCap > 0) {
+    parts.push(
+      `${String(excluded.overSizeCap)} file${excluded.overSizeCap === 1 ? '' : 's'} over the ${String(MAX_FILE_BYTES / 1024 / 1024)} MiB cap`,
+    );
+  }
+  if (excluded.symlinks > 0) {
+    parts.push(`${String(excluded.symlinks)} symlink${excluded.symlinks === 1 ? '' : 's'}`);
+  }
+  if (excluded.overFileCap > 0) {
+    parts.push(`${String(excluded.overFileCap)} beyond the ${String(MAX_FILES)} file ceiling`);
+  }
+  if (excluded.unreadable > 0) {
+    parts.push(
+      `${String(excluded.unreadable)} unreadable director${excluded.unreadable === 1 ? 'y' : 'ies'}`,
+    );
+  }
+
+  return parts.join(', ');
 }
 
 /**
@@ -27,7 +70,11 @@ export interface ScanResult {
  * would make the answer depend on where the demo was run rather than on what the agent holds.
  */
 export async function scanForString(root: string, needle: string): Promise<ScanResult> {
-  const result: ScanResult = { filesScanned: 0, hits: [], truncated: false };
+  const result: ScanResult = {
+    filesScanned: 0,
+    hits: [],
+    excluded: { overSizeCap: 0, symlinks: 0, overFileCap: 0, unreadable: 0 },
+  };
   const queue: string[] = [root];
 
   while (queue.length > 0) {
@@ -41,12 +88,17 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
       // A directory this process may not read is not a place the token could be hiding *for
-      // this process* either, which is the question the case is asking.
+      // this process* either — but it is still a gap in the claim, so it is counted.
+      result.excluded.unreadable += 1;
       continue;
     }
 
     for (const entry of entries) {
-      if (entry.isSymbolicLink() || entry.name === '.git') {
+      if (entry.isSymbolicLink()) {
+        result.excluded.symlinks += 1;
+        continue;
+      }
+      if (entry.name === '.git') {
         continue;
       }
 
@@ -60,13 +112,14 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
         continue;
       }
       if (result.filesScanned >= MAX_FILES) {
-        result.truncated = true;
+        result.excluded.overFileCap += 1;
         continue;
       }
 
       try {
         const info = await stat(full);
         if (info.size > MAX_FILE_BYTES) {
+          result.excluded.overSizeCap += 1;
           continue;
         }
 

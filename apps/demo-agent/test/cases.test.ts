@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -95,6 +95,29 @@ describe('case 2 — secret protection', () => {
 
     expect(result.pass).toBe(false);
     expect(result.evidence.join('\n')).toContain('GITHUB_TOKEN');
+  });
+
+  it('says what it did not read: files over the size cap and symlinks', async () => {
+    const root = await emptyDirectory();
+    await writeFile(path.join(root, 'big.bin'), 'x'.repeat(2 * 1024 * 1024));
+    await symlink(tmpdir(), path.join(root, 'elsewhere'));
+    const context = contextFor(new StubGate([]), { scanRoot: root });
+
+    const result = await caseSecretProtection(context);
+
+    // Still a pass — nothing was found — but the claim is bounded out loud, which is the
+    // difference between "the token is nowhere" and "the token is nowhere I looked".
+    expect(result.pass).toBe(true);
+    const evidence = result.evidence.join('\n');
+    expect(evidence).toContain('not read');
+    expect(evidence).toContain('1 file over');
+    expect(evidence).toContain('1 symlink');
+  });
+
+  it('says nothing about exclusions when there were none', async () => {
+    const context = contextFor(new StubGate([]), { scanRoot: await emptyDirectory() });
+
+    expect((await caseSecretProtection(context)).evidence.join('\n')).not.toContain('not read');
   });
 
   it('fails when the token is somewhere on disk', async () => {

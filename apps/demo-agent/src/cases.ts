@@ -6,7 +6,7 @@ import {
   type ProxyResponse,
   type WaitForApprovalOptions,
 } from '@agentgate/sdk';
-import { scanForString } from './scan.js';
+import { describeExclusions, hasExclusions, scanForString } from './scan.js';
 
 /**
  * Just enough of the SDK to run a case, so the suite can hand these functions a client that
@@ -237,8 +237,8 @@ export async function caseSecretProtection(context: DemoContext): Promise<CaseRe
   for (const hit of scan.hits) {
     note(`  HIT ${hit}`);
   }
-  if (scan.truncated) {
-    note('  the scan hit its file cap: this says nothing about the files it did not read');
+  if (hasExclusions(scan.excluded)) {
+    note(`  not read, and therefore not claimed about: ${describeExclusions(scan.excluded)}`);
   }
 
   return {
