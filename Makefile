@@ -28,7 +28,7 @@ test: require-env dev-db db-migrate ## Run every workspace test suite (needs the
 	pnpm -r test
 
 demo: require-env ## Run the end-to-end authorization demo (cases 0-6, in containers)
-	docker compose build demo-agent
+	docker compose --profile demo build demo-agent
 	node scripts/demo-orchestrator.mjs
 
 demo-host: require-env db-migrate ## Run the demo without Docker: local gateway, upstream and agent

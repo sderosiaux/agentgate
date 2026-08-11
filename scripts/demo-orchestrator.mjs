@@ -279,8 +279,12 @@ async function composeMode(autoApprove) {
     'docker',
     [
       'compose',
+      // The service sits behind the `demo` profile so `docker compose up` never starts it.
+      '--profile',
+      'demo',
       'run',
       '--rm',
+      // No TTY: this output is read line by line by the marker watcher above.
       '-T',
       '-e',
       'AGENTGATE_URL=http://gateway:8080',
