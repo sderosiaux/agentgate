@@ -341,12 +341,18 @@ test('unknown, revoked and out-of-scope aliases are indistinguishable to the age
 });
 
 test('the trail still tells the three credential refusals apart, server-side', async () => {
+  // A revoked credential being exercised is not the same event as an alias nobody ever had:
+  // one is a typo, the other is something still holding a key that was taken away.
   harness = await startHarness({ credentialStatus: 'revoked' });
   const token = await harness.mint();
 
   await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
+  await harness.proxy({ credential: 'no_such_alias', ...READ_PAYMENTS }, token);
 
-  expect((await auditRow(harness))[0]?.matchedPolicy).toBe('credential-unknown');
+  expect((await auditRow(harness)).map((row) => row.matchedPolicy)).toEqual([
+    'credential-revoked',
+    'credential-unknown',
+  ]);
 });
 
 test('an unknown credential alias is refused', async () => {

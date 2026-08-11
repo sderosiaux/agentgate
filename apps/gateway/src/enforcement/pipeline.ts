@@ -371,10 +371,21 @@ async function execute(
       status: true,
     },
   });
-  if (credential === null || credential.status !== 'active') {
+  if (credential === null) {
     denied(
       attempt,
       'credential-unknown',
+      CREDENTIAL_REFUSAL(request.credential),
+      'agentgate_unknown_credential',
+    );
+  }
+  if (credential.status !== 'active') {
+    // Its own tag: an alias nobody ever created is a typo, while a revoked one being exercised
+    // is something still holding a key that was taken away — worth telling apart in the trail,
+    // and worth alerting on later. The agent is told the same thing either way.
+    denied(
+      attempt,
+      'credential-revoked',
       CREDENTIAL_REFUSAL(request.credential),
       'agentgate_unknown_credential',
     );
@@ -485,10 +496,12 @@ async function execute(
   // 9 — allowed, and only now does a plaintext credential exist in this process.
   const resolved = await deps.secretStore.getByAlias(request.credential);
   if (resolved === null) {
-    // Revoked between the metadata read and here. Fail closed rather than forward unauthenticated.
+    // Revoked between the metadata read and here — a narrower window than the check at step 5,
+    // and its own tag so the trail says which of the two caught it. Fail closed rather than
+    // forward unauthenticated.
     denied(
       attempt,
-      'credential-revoked',
+      'credential-revoked-in-flight',
       CREDENTIAL_REFUSAL(request.credential),
       'agentgate_unknown_credential',
     );
