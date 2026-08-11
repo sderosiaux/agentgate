@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, GatewayError } from '@/lib/api';
+import { api, describeError, GatewayError } from '@/lib/api';
 
 const TOKEN = 'test-admin-token-DEV-ONLY';
 
@@ -118,6 +118,67 @@ describe('the gateway client', () => {
 
     expect(queue.items).toHaveLength(1);
     expect(queue.nextCursor).toBeNull();
+  });
+
+  it('never renders a connection URL, because that URL can carry a password', async () => {
+    // GATEWAY_URL is a deployment value an operator may well have written credentials into,
+    // and describeError's output is rendered into HTML the browser receives. Two ways it used
+    // to escape: the configured URL itself, and undici's error message, which re-embeds it.
+    process.env.GATEWAY_URL = 'http://admin:hunter2SECRET@127.0.0.1:9';
+    const refused = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(
+        new Error('connect ECONNREFUSED http://admin:hunter2SECRET@127.0.0.1:9'),
+        {
+          code: 'ECONNREFUSED',
+        },
+      ),
+    });
+    fetchMock.mockRejectedValue(refused);
+
+    const failure = await api.overview().catch((error: unknown) => error);
+    const shown = describeError(failure);
+
+    expect(shown).not.toContain('hunter2SECRET');
+    expect(shown).not.toContain('admin:');
+    expect(shown).not.toContain('fetch failed');
+    // Still useful: the host it could not reach, and why.
+    expect(shown).toContain('127.0.0.1:9');
+    expect(shown).toContain('ECONNREFUSED');
+  });
+
+  it('finds the failure code however deeply the runtime wrapped it', async () => {
+    process.env.GATEWAY_URL = 'http://admin:hunter2SECRET@127.0.0.1:9';
+    const nested = new TypeError('fetch failed');
+    (nested as { cause?: unknown }).cause = {
+      message: 'connect to http://admin:hunter2SECRET@127.0.0.1:9 failed',
+      cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:9'), {
+        code: 'ECONNREFUSED',
+      }),
+    };
+    fetchMock.mockRejectedValue(nested);
+
+    const shown = describeError(await api.overview().catch((error: unknown) => error));
+
+    expect(shown).toBe('127.0.0.1:9 could not be reached (ECONNREFUSED)');
+  });
+
+  it('says nothing beyond the host when there is no code worth repeating', async () => {
+    process.env.GATEWAY_URL = 'http://admin:hunter2SECRET@127.0.0.1:9';
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+
+    expect(describeError(await api.overview().catch((error: unknown) => error))).toBe(
+      '127.0.0.1:9 could not be reached',
+    );
+  });
+
+  it('keeps the gateway’s own words when the gateway is the one refusing', async () => {
+    fetchMock.mockResolvedValue(
+      answer({ error: 'agentgate_invalid_token', reason: 'Admin token is invalid' }, 401),
+    );
+
+    const failure = await api.overview().catch((error: unknown) => error);
+
+    expect(describeError(failure)).toBe('Admin token is invalid (HTTP 401)');
   });
 
   it('defaults to the compose address when GATEWAY_URL is not set', async () => {

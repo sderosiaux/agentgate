@@ -31,6 +31,25 @@ function gatewayUrl(): string {
   return process.env.GATEWAY_URL ?? DEFAULT_GATEWAY_URL;
 }
 
+/**
+ * The gateway reduced to the one part of it that may be shown to a browser.
+ *
+ * `GATEWAY_URL` is a connection string, and an operator is entitled to write credentials into
+ * one — `http://admin:hunter2@gateway:8080` is a perfectly ordinary thing to configure. `URL.host`
+ * drops the userinfo along with everything else, leaving the name and port an operator needs to
+ * know which gateway they are looking at. Anything rendered into a page goes through here.
+ */
+export function gatewayHost(): string {
+  const configured = gatewayUrl();
+
+  try {
+    return new URL(configured).host;
+  } catch {
+    // Not a URL at all, so it cannot be parsed apart — and must not be printed whole either.
+    return 'the configured gateway';
+  }
+}
+
 function adminToken(): string {
   const token = process.env.ADMIN_TOKEN;
 
@@ -214,14 +233,45 @@ export const api = {
     get<DecisionRecord>(`/decisions/${encodeURIComponent(requestId)}`),
 };
 
-/** What to show a human when the gateway says no, or says nothing at all. */
+/**
+ * A transport failure's code, when it has one worth repeating.
+ *
+ * Only a bare screaming-snake token — `ECONNREFUSED`, `ENOTFOUND` — is taken. The message beside
+ * it is not: undici builds those by embedding the URL it was given, so repeating one puts the
+ * connection string, credentials and all, back into the page this function feeds.
+ */
+function failureCode(error: unknown): string | null {
+  // Walked rather than read at a fixed depth: the runtime wraps a connection failure more than
+  // once, so `ECONNREFUSED` sits at whatever level this particular stack happens to put it.
+  let carrier: unknown = error;
+
+  for (let depth = 0; depth < 5 && carrier !== null && carrier !== undefined; depth += 1) {
+    const { code, cause } = carrier as { code?: unknown; cause?: unknown };
+
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]*$/.test(code)) {
+      return code;
+    }
+
+    carrier = cause;
+  }
+
+  return null;
+}
+
+/**
+ * What to show a human when the gateway says no, or says nothing at all.
+ *
+ * Whatever this returns is rendered into HTML the browser receives, so it is written under the
+ * same rule as everything else here: the host, never the URL. A `GatewayError` carries the
+ * gateway's own words, which are safe by construction — that text comes from the management
+ * API's `reason` field and never quotes what the console sent.
+ */
 export function describeError(error: unknown): string {
   if (error instanceof GatewayError) {
     return error.status === 0 ? error.message : `${error.message} (HTTP ${error.status})`;
   }
-  if (error instanceof Error) {
-    return `${gatewayUrl()} is unreachable: ${error.message}`;
-  }
 
-  return 'the gateway could not be reached';
+  const code = failureCode(error);
+
+  return `${gatewayHost()} could not be reached${code === null ? '' : ` (${code})`}`;
 }

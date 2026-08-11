@@ -2,7 +2,9 @@ import type { Metadata } from 'next';
 import { IBM_Plex_Mono, Instrument_Sans } from 'next/font/google';
 import type { ReactElement, ReactNode } from 'react';
 import { Sidebar } from '@/components/Sidebar';
-import { api } from '@/lib/api';
+// `gatewayHost` rather than GATEWAY_URL itself: the rail prints this, and a connection string
+// may carry credentials. One reduction, used everywhere a gateway address reaches a page.
+import { api, gatewayHost } from '@/lib/api';
 import './globals.css';
 
 const sans = Instrument_Sans({
@@ -25,17 +27,6 @@ export const metadata: Metadata = {
 
 /** Nothing in this console is cacheable: it shows what the gateway believes right now. */
 export const dynamic = 'force-dynamic';
-
-/** The host part of `GATEWAY_URL`, for the rail. Not a secret; the token that reaches it is. */
-function gatewayHost(): string {
-  const configured = process.env.GATEWAY_URL ?? 'http://gateway:8080';
-
-  try {
-    return new URL(configured).host;
-  } catch {
-    return configured;
-  }
-}
 
 /**
  * The queue depth shown on the rail. Fetched here so it is right on every page, and swallowed on
