@@ -49,6 +49,15 @@ describe('parsePolicyInput', () => {
     }
   });
 
+  test('a body size that is not a count is refused', () => {
+    for (const bodySize of [-1, 1.5, Number.NaN]) {
+      const input = inputFor(SAMPLE_CASE);
+      input.data = { bodySize };
+
+      expect(() => parsePolicyInput(input), `bodySize ${bodySize}`).toThrowError(AgentGateError);
+    }
+  });
+
   test('an unknown key in the mission permissions is refused', () => {
     const input = inputFor(SAMPLE_CASE);
     (input.mission.permissions as unknown as Record<string, unknown>)['wildcards'] = ['*'];

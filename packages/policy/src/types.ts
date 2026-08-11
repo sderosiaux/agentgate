@@ -74,7 +74,8 @@ export const PolicyInputSchema = z.object({
   }),
   data: z.object({
     contentType: z.string().optional(),
-    bodySize: z.number().optional(),
+    // A byte count, held to the same shape as the counters in `currentState`.
+    bodySize: z.number().int().nonnegative().optional(),
     bodyHash: z.string().optional(),
   }),
 });
