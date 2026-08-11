@@ -1,9 +1,12 @@
 import {
   AgentGateSdkError,
-  AccessDeniedError,
+  ApprovalNotGrantedError,
+  ApprovalTimeoutError,
   asRefusal,
-  GatewayError,
+  MalformedResponseError,
+  TimeoutError,
   toSdkError,
+  TransportError,
 } from './errors.js';
 
 export interface AgentGateOptions {
@@ -11,6 +14,15 @@ export interface AgentGateOptions {
   gatewayUrl: string;
   /** The mission-bound agent token. One token, one mission (D9). */
   token: string;
+  /**
+   * How long one call may take before it is abandoned. Defaults to
+   * {@link DEFAULT_REQUEST_TIMEOUT_MS}.
+   *
+   * There is no such thing as waiting this out: the gateway is the agent's only route anywhere,
+   * so a gateway that accepts a connection and goes silent is an agent that never runs again.
+   * A bound is not a tuning knob here, it is the difference between a failure and a hang.
+   */
+  timeoutMs?: number | undefined;
 }
 
 /**
@@ -27,6 +39,11 @@ export interface ProxyRequest {
   body?: string | undefined;
   /** The grant a human issued, on the retry of a request that needed one (D7). */
   approvalId?: string | undefined;
+  /**
+   * The caller's own cancellation, honoured alongside the client's timeout. An agent shutting
+   * down should not have to wait for whichever of the two is longer.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 export interface ProxyResponse {
@@ -56,6 +73,12 @@ export interface WaitForApprovalOptions {
   intervalMs?: number | undefined;
 }
 
+/**
+ * Long enough for a slow upstream the gateway is still waiting on — its own forward timeout is
+ * 10 seconds — and short enough that a silent gateway is a failure within the minute.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 /** Long enough for a human to look at a queue, short enough that a stuck agent stops. */
 const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
 const DEFAULT_APPROVAL_INTERVAL_MS = 1_000;
@@ -67,6 +90,13 @@ const SETTLED: Record<string, boolean> = {
   expired: true,
   consumed: true,
 };
+
+/** What one HTTP call gave back, already read. The shape every method here reasons about. */
+interface RawAnswer {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
@@ -93,6 +123,7 @@ export class AgentGate {
   // is exactly the place where that is not a theoretical concern.
   readonly #gatewayUrl: string;
   readonly #token: string;
+  readonly #timeoutMs: number;
 
   constructor(options: AgentGateOptions) {
     if (options.gatewayUrl === '') {
@@ -106,6 +137,7 @@ export class AgentGate {
 
     this.#gatewayUrl = trimTrailingSlash(options.gatewayUrl);
     this.#token = options.token;
+    this.#timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
   /**
@@ -118,34 +150,40 @@ export class AgentGate {
    * nothing there".
    */
   async request(request: ProxyRequest): Promise<ProxyResponse> {
-    const response = await this.send('POST', '/v1/proxy', {
-      credential: request.credential,
-      method: request.method,
-      url: request.url,
-      ...(request.headers === undefined ? {} : { headers: request.headers }),
-      ...(request.body === undefined ? {} : { body: request.body }),
-      ...(request.approvalId === undefined ? {} : { approvalId: request.approvalId }),
-    });
+    const answer = await this.#send(
+      'POST',
+      '/v1/proxy',
+      {
+        credential: request.credential,
+        method: request.method,
+        url: request.url,
+        ...(request.headers === undefined ? {} : { headers: request.headers }),
+        ...(request.body === undefined ? {} : { body: request.body }),
+        ...(request.approvalId === undefined ? {} : { approvalId: request.approvalId }),
+      },
+      request.signal,
+    );
 
-    const body = await response.text();
-    const refusal = asRefusal(body);
+    const refusal = asRefusal(answer.body);
 
     if (refusal !== null) {
-      throw toSdkError(response.status, refusal);
+      throw toSdkError(answer.status, refusal);
     }
 
+    const { status, headers, body } = answer;
+
     return {
-      status: response.status,
-      headers: headersToRecord(response.headers),
+      status,
+      headers,
       body,
       json<T>(): T {
         try {
           return JSON.parse(body) as T;
         } catch {
-          throw new AgentGateSdkError('the response body is not json', {
+          throw new MalformedResponseError('the response body is not json', {
             code: 'agentgate_sdk_invalid_json',
-            status: response.status,
-            requestId: response.headers.get('x-agentgate-request-id') ?? undefined,
+            status,
+            requestId: headers['x-agentgate-request-id'],
           });
         }
       },
@@ -153,28 +191,46 @@ export class AgentGate {
   }
 
   /** Where the approval an agent is waiting on has got to. Its own approval, or a 404. */
-  async getApproval(approvalId: string): Promise<ApprovalView> {
-    const response = await this.send(
+  async getApproval(approvalId: string, signal?: AbortSignal): Promise<ApprovalView> {
+    const answer = await this.#send(
       'GET',
       `/v1/approvals/${encodeURIComponent(approvalId)}`,
       undefined,
+      signal,
     );
 
-    const body = await response.text();
-    const refusal = asRefusal(body);
+    const refusal = asRefusal(answer.body);
 
     if (refusal !== null) {
-      throw toSdkError(response.status, refusal);
+      throw toSdkError(answer.status, refusal);
     }
 
-    try {
-      return JSON.parse(body) as ApprovalView;
-    } catch {
-      throw new GatewayError('the approval endpoint did not answer with json', {
-        code: 'agentgate_sdk_invalid_json',
-        status: response.status,
+    const malformed = (reason: string): MalformedResponseError =>
+      new MalformedResponseError(reason, {
+        code: 'agentgate_sdk_invalid_approval',
+        status: answer.status,
+        requestId: answer.headers['x-agentgate-request-id'],
       });
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(answer.body);
+    } catch {
+      throw malformed('the approval endpoint did not answer with json');
     }
+
+    const view = parsed as Partial<ApprovalView>;
+
+    // Checked rather than cast. An unrecognised status is not "still pending", but that is
+    // exactly what it became: `waitForApproval` would poll something it had no meaning for
+    // until it timed out, and report a human who never answered.
+    if (typeof view.status !== 'string' || !APPROVAL_STATUSES.includes(view.status as never)) {
+      throw malformed(
+        `the approval endpoint reported a status this client does not know: ${String(view.status)}`,
+      );
+    }
+
+    return view as ApprovalView;
   }
 
   /**
@@ -199,13 +255,15 @@ export class AgentGate {
       }
 
       if (SETTLED[approval.status] === true) {
-        throw new AccessDeniedError(`approval ${approvalId} is ${approval.status}`, {
-          code: 'agentgate_approval_not_granted',
-        });
+        throw new ApprovalNotGrantedError(
+          `approval ${approvalId} is ${approval.status}`,
+          approval.status,
+          { code: 'agentgate_approval_not_granted' },
+        );
       }
 
       if (Date.now() + intervalMs > deadline) {
-        throw new AgentGateSdkError(
+        throw new ApprovalTimeoutError(
           `approval ${approvalId} was not decided within ${String(timeoutMs)}ms`,
           { code: 'agentgate_sdk_approval_timeout' },
         );
@@ -215,21 +273,60 @@ export class AgentGate {
     }
   }
 
-  private async send(method: 'GET' | 'POST', path: string, payload: unknown): Promise<Response> {
+  /**
+   * One call, from the socket to a body read in full — under one deadline.
+   *
+   * The read is inside the timeout on purpose: a gateway that sends headers and then stops
+   * sending bytes hangs an agent exactly as thoroughly as one that never answers, and a timeout
+   * that stops at the headers would not notice.
+   */
+  async #send(
+    method: 'GET' | 'POST',
+    path: string,
+    payload: unknown,
+    callerSignal?: AbortSignal | undefined,
+  ): Promise<RawAnswer> {
+    // Its own timer per call, unref'd by the platform, so a client sitting idle does not keep a
+    // process alive on the strength of a request it already finished.
+    const expiry = AbortSignal.timeout(this.#timeoutMs);
+    const signal = callerSignal === undefined ? expiry : AbortSignal.any([expiry, callerSignal]);
+
     try {
-      return await fetch(`${this.#gatewayUrl}${path}`, {
+      const response = await fetch(`${this.#gatewayUrl}${path}`, {
         method,
         headers: {
           authorization: `Bearer ${this.#token}`,
           ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
         },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+        signal,
       });
+
+      return {
+        status: response.status,
+        headers: headersToRecord(response.headers),
+        body: await response.text(),
+      };
     } catch (error) {
+      // Which of the two signals fired is the difference between "try again" and "you asked me
+      // to stop", and a caller cancelling its own request must never be reported as the gateway
+      // being slow.
+      if (expiry.aborted) {
+        throw new TimeoutError(
+          `the gateway at ${this.#gatewayUrl} did not answer within ${String(this.#timeoutMs)}ms`,
+          { code: 'agentgate_sdk_timeout' },
+        );
+      }
+      if (callerSignal?.aborted === true) {
+        throw new TransportError(`the request to ${this.#gatewayUrl}${path} was cancelled`, {
+          code: 'agentgate_sdk_cancelled',
+        });
+      }
+
       // The gateway is the agent's only way out of its sandbox, so "I could not reach it" is
       // worth saying in those words rather than letting a bare `TypeError: fetch failed` reach
       // an agent that has no other route to try.
-      throw new GatewayError(
+      throw new TransportError(
         `the gateway at ${this.#gatewayUrl} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
         { code: 'agentgate_sdk_unreachable' },
       );

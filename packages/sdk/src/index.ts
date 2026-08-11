@@ -1,6 +1,7 @@
 export {
   AgentGate,
   APPROVAL_STATUSES,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   type AgentGateOptions,
   type ApprovalStatus,
   type ApprovalView,
@@ -11,10 +12,15 @@ export {
 export {
   AccessDeniedError,
   AgentGateSdkError,
+  ApprovalNotGrantedError,
   ApprovalRequiredError,
+  ApprovalTimeoutError,
   GatewayError,
   InvalidTokenError,
   LimitExceededError,
+  MalformedResponseError,
+  TimeoutError,
+  TransportError,
   type AgentGateRefusalBody,
   type AgentGateSdkErrorInit,
 } from './errors.js';

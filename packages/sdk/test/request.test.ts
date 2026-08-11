@@ -1,6 +1,11 @@
 import { inspect } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AgentGate, AgentGateSdkError } from '../src/index.js';
+import {
+  AgentGate,
+  AgentGateSdkError,
+  MalformedResponseError,
+  TransportError,
+} from '../src/index.js';
 import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
 import { startHarness, type Harness } from './helpers/harness.js';
 
@@ -87,7 +92,7 @@ describe('AgentGate.request', () => {
     });
 
     expect(response.body).toBe('not json at all');
-    expect(() => response.json()).toThrow(AgentGateSdkError);
+    expect(() => response.json()).toThrow(MalformedResponseError);
   });
 
   it('says so when the gateway cannot be reached at all', async () => {
@@ -97,7 +102,7 @@ describe('AgentGate.request', () => {
 
     await expect(
       gate.request({ credential: 'github_work', method: 'GET', url: ISSUE_URL }),
-    ).rejects.toMatchObject({ code: 'agentgate_sdk_unreachable' });
+    ).rejects.toBeInstanceOf(TransportError);
   });
 
   it('does not carry the mission token on any enumerable property', () => {

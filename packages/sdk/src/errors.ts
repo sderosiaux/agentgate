@@ -69,6 +69,24 @@ export class ApprovalRequiredError extends AgentGateSdkError {
 /** 403: the mission does not cover this request — or no longer covers anything at all. */
 export class AccessDeniedError extends AgentGateSdkError {}
 
+/**
+ * The approval an agent was waiting on settled as something other than a grant.
+ *
+ * Still an `AccessDeniedError` — the agent may not proceed, which is all most callers need —
+ * but carrying which of the three it was. "The human said no", "the grant expired unused" and
+ * "it has already been spent" are three different things to do next, and telling them apart by
+ * matching on a sentence is not an interface.
+ */
+export class ApprovalNotGrantedError extends AccessDeniedError {
+  constructor(
+    message: string,
+    readonly approvalStatus: string,
+    init: AgentGateSdkErrorInit,
+  ) {
+    super(message, init);
+  }
+}
+
 /** 429: the mission ran out of requests, of requests per minute, or of bytes. */
 export class LimitExceededError extends AgentGateSdkError {}
 
@@ -76,11 +94,33 @@ export class LimitExceededError extends AgentGateSdkError {}
 export class InvalidTokenError extends AgentGateSdkError {}
 
 /**
- * Every other refusal: a malformed envelope, a body larger than the gateway will read, an
- * upstream that failed or answered with more than the mission can afford. Deliberately one
- * class — these are conditions an agent reports rather than reacts to.
+ * Every other refusal *the gateway made*: a malformed envelope, a body larger than it will read,
+ * an upstream that failed or answered with more than the mission can afford. One class, because
+ * these are conditions an agent reports rather than reacts to — but deliberately not the same
+ * class as never having reached the gateway at all.
  */
 export class GatewayError extends AgentGateSdkError {}
+
+/**
+ * No answer, so no decision: the gateway could not be reached, it went silent, or the caller
+ * cancelled. Separated from {@link GatewayError} because the two call for opposite responses —
+ * a refusal is final and worth reporting, while this may simply be worth trying again.
+ */
+export class TransportError extends AgentGateSdkError {}
+
+/** Transport, specifically because time ran out. Retryable in a way a cancellation is not. */
+export class TimeoutError extends TransportError {}
+
+/**
+ * An answer arrived and could not be read as what it claimed to be: a body that is not JSON, an
+ * approval carrying a status this SDK has no meaning for. Its own class rather than a gateway
+ * refusal, because nothing was refused — and because guessing at it is how an unknown approval
+ * status quietly becomes "keep waiting".
+ */
+export class MalformedResponseError extends AgentGateSdkError {}
+
+/** `waitForApproval` gave up: nobody decided in the time it was given. */
+export class ApprovalTimeoutError extends AgentGateSdkError {}
 
 /**
  * A body is a refusal when it says so in the two fields every `AgentGateError` writes. Checked

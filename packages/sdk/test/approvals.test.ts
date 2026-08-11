@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   AccessDeniedError,
   AgentGateSdkError,
+  ApprovalNotGrantedError,
   ApprovalRequiredError,
+  ApprovalTimeoutError,
   type ProxyRequest,
 } from '../src/index.js';
 import { startHarness, type Harness } from './helpers/harness.js';
@@ -81,6 +83,15 @@ describe('the approval round trip', () => {
 
     expect(reused).toBeInstanceOf(AccessDeniedError);
     expect((reused as AccessDeniedError).reason).toContain('already been used');
+
+    // And waiting on it again says which of the ways it is unusable, without anyone having to
+    // read a sentence to find out.
+    const spent = await harness.gate
+      .waitForApproval(required.approvalId, { timeoutMs: 5_000, intervalMs: 50 })
+      .catch((error: unknown) => error);
+
+    expect(spent).toBeInstanceOf(ApprovalNotGrantedError);
+    expect((spent as ApprovalNotGrantedError).approvalStatus).toBe('consumed');
   });
 
   it('throws when the human said no', async () => {
@@ -94,8 +105,10 @@ describe('the approval round trip', () => {
       .waitForApproval(required.approvalId, { timeoutMs: 5_000, intervalMs: 50 })
       .catch((error: unknown) => error);
 
+    expect(failure).toBeInstanceOf(ApprovalNotGrantedError);
+    // Still an AccessDeniedError, so an agent that only wants "I may not proceed" is unaffected.
     expect(failure).toBeInstanceOf(AccessDeniedError);
-    expect((failure as AccessDeniedError).message).toContain('denied');
+    expect((failure as ApprovalNotGrantedError).approvalStatus).toBe('denied');
   });
 
   it('gives up rather than polling forever', async () => {
@@ -107,6 +120,7 @@ describe('the approval round trip', () => {
       .waitForApproval(required.approvalId, { timeoutMs: 300, intervalMs: 50 })
       .catch((error: unknown) => error);
 
+    expect(failure).toBeInstanceOf(ApprovalTimeoutError);
     expect(failure).toBeInstanceOf(AgentGateSdkError);
     expect((failure as AgentGateSdkError).code).toBe('agentgate_sdk_approval_timeout');
   });
