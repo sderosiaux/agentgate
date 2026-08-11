@@ -14,8 +14,8 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "pnpm build && tsc -p tsconfig.test.json",
-    "test": "pnpm build && vitest run"
+    "typecheck": "pnpm --filter \"@agentgate/auth...\" build && tsc -p tsconfig.test.json",
+    "test": "pnpm --filter \"@agentgate/auth...\" build && vitest run"
   },
   "dependencies": {
     "@agentgate/shared": "workspace:*",
