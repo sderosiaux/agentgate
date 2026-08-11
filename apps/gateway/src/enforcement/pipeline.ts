@@ -246,12 +246,6 @@ async function execute(
   attempt.principalId = claims.principalId;
   attempt.missionId = claims.missionId;
 
-  // The envelope, read only once the caller is identified: an unauthenticated request gets
-  // "your token is not usable" rather than a critique of a body nobody was going to act on.
-  const request = parseProxyRequest(rawBody);
-  attempt.method = request.method;
-  Object.assign(attempt, describeBody(request));
-
   // 2 — the mission the token is bound to.
   const mission = await deps.prisma.mission.findUnique({ where: { id: claims.missionId } });
   if (mission === null) {
@@ -300,6 +294,15 @@ async function execute(
       { decision: 'DENY', details: { limit: slot.reason } },
     );
   }
+  // The envelope, read only once the caller is identified and has paid for the attempt: an
+  // unauthenticated or out-of-budget request gets an answer about that, rather than a critique
+  // of a body nobody was going to act on. Reading it after the slot is what stops a malformed
+  // body from being a free write to an append-only table.
+  const request = parseProxyRequest(rawBody);
+  attempt.method = request.method;
+  Object.assign(attempt, describeBody(request));
+
+  // The byte budget needs the size of the body, so it can only be checked once there is one.
   if (bytesExceeded(slot.usage, documents.limits, attempt.bodySize ?? 0)) {
     attempt.matchedPolicy = 'mission-limit-max_bytes';
     throw new AgentGateError('agentgate_limit_exceeded', 429, 'mission exceeded its byte budget', {

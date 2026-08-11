@@ -49,6 +49,36 @@ test('a refused request still spends its slot', async () => {
   expect(third.statusCode).toBe(429);
 });
 
+test('a malformed envelope from an authenticated agent costs a slot like any other', async () => {
+  // Otherwise probing the gateway with garbage is free, and every free attempt still writes a
+  // row to an append-only table: the cheapest denial-of-wallet there is.
+  harness = await startHarness();
+  const token = await harness.mint();
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await harness.proxy({ garbage: attempt }, token);
+    expect(response.statusCode).toBe(400);
+  }
+
+  const counter = await harness.prisma.usageCounter.findUniqueOrThrow({
+    where: { missionId: harness.missionId },
+  });
+  expect(counter.requestCount).toBe(4);
+});
+
+test('a mission out of budget is refused before its envelope is even read', async () => {
+  harness = await startHarness({ limits: { ...DEFAULT_LIMITS, maxRequests: 1 } });
+  const token = await harness.mint();
+
+  await read(harness, token);
+  const response = await harness.proxy({ garbage: true }, token);
+
+  // The budget is spent, so the answer is about the budget — not a critique of a body the
+  // gateway was never going to act on.
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toMatchObject({ error: 'agentgate_limit_exceeded' });
+});
+
 test('the per-minute window refuses the extra request and reopens on the next minute', async () => {
   // A fixed clock, so the three calls provably land in the same window rather than usually
   // landing there. The mission outlives it by a wide margin.
