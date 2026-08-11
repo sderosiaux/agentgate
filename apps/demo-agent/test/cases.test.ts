@@ -208,6 +208,15 @@ describe('case 4 — approval', () => {
     expect(String(gate.calls[0]?.body)).toContain(ISSUE.title);
   });
 
+  it('names the console page a human would go to', async () => {
+    const gate = new StubGate([required, created, denied('already been used')]);
+    const context = contextFor(gate, { consoleUrl: 'http://console.test:3000' });
+
+    const result = await caseApproval(context);
+
+    expect(result.evidence.join('\n')).toContain('http://console.test:3000/approvals');
+  });
+
   it('fails when the first attempt was allowed outright', async () => {
     const context = contextFor(new StubGate([created]));
 

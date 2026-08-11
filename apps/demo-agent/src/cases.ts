@@ -55,6 +55,12 @@ export interface DemoContext {
   env: Record<string, string | undefined>;
   /** Where the filesystem scan of case 2 starts. */
   scanRoot: string;
+  /**
+   * The web console, for the human reading this output — not for the agent, which sits on a
+   * network the console is not on and could not open it if it wanted to (SPEC D14: an approval
+   * an agent is waiting on is a page somebody has to be able to find).
+   */
+  consoleUrl: string;
   /** Where evidence goes as it is produced, so the orchestrator sees a marker in real time. */
   log: (line: string) => void;
   timings: DemoTimings;
@@ -331,6 +337,7 @@ export async function caseApproval(context: DemoContext): Promise<CaseResult> {
 
   note(`→ 202 approval required: ${first.reason}`);
   note(`approval ${first.approvalId} is waiting for a human`);
+  note(`decide it at ${context.consoleUrl}/approvals`);
   // Printed before the wait starts: the orchestrator reads stdout, and a marker written after
   // the agent has already blocked would be a deadlock rather than a demo.
   note(`${APPROVAL_MARKER} ${first.approvalId}`);

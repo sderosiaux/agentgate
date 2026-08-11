@@ -79,6 +79,7 @@ export function contextFor(
     mode: 'container',
     env: { AGENTGATE_URL: 'http://gateway:8080', HOME: '/home/agent' },
     scanRoot: process.cwd(),
+    consoleUrl: 'http://localhost:3000',
     log: (line: string) => output.push(line),
     timings: FAST_TIMINGS,
     sleep: async () => {},

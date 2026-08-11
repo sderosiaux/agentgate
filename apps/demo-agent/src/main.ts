@@ -41,6 +41,9 @@ const context: DemoContext = {
   // `/app` is where the image puts the workspace. A host run scans the directory it was started
   // in, which the orchestrator sets to this package.
   scanRoot: process.env['DEMO_SCAN_ROOT'] ?? (mode === 'host' ? process.cwd() : '/app'),
+  // Published on the host, not reachable from here: it is printed for whoever is watching the
+  // terminal, so it has to be the address *they* can open.
+  consoleUrl: process.env['AGENTGATE_WEB_URL'] ?? 'http://localhost:3000',
   log,
   timings: DEFAULT_TIMINGS,
   sleep,

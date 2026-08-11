@@ -108,6 +108,17 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Where a human would go to decide the approval, which is the host-published address of the
+ * console and never the compose hostname: the agent prints this line for whoever is reading the
+ * terminal, and it sits on a network from which the console is unreachable anyway.
+ */
+function webConsoleUrl() {
+  return (
+    process.env['AGENTGATE_WEB_URL'] ?? `http://localhost:${process.env['WEB_PORT'] ?? '3000'}`
+  );
+}
+
 /** Runs a command to completion, with its output on ours. Rejects on a non-zero exit. */
 async function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -299,6 +310,8 @@ async function composeMode(autoApprove) {
       '-e',
       'AGENTGATE_CREDENTIAL=github_work',
       '-e',
+      `AGENTGATE_WEB_URL=${webConsoleUrl()}`,
+      '-e',
       'DEMO_MODE=container',
       'demo-agent',
     ],
@@ -435,6 +448,7 @@ async function hostMode(autoApprove) {
           AGENTGATE_URL: `http://127.0.0.1:${String(HOST_GATEWAY_PORT)}`,
           AGENTGATE_TOKEN: session.token,
           AGENTGATE_CREDENTIAL: alias,
+          AGENTGATE_WEB_URL: webConsoleUrl(),
           DEMO_MODE: 'host',
         },
       },
