@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   MissionLimitsSchema,
@@ -11,6 +12,36 @@ import { createPrismaClient, type PrismaClient } from '../src/db.js';
 import { assertMasterKey, encryptSecret, InjectionSpecSchema } from '../src/secrets/index.js';
 
 const MISSION_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * The demo mission, as a document rather than as code.
+ *
+ * `scripts/demo-orchestrator.mjs` issues a fresh mission on every `make demo` run and has to
+ * grant exactly this scope; it is a host-side script and cannot import anything from here. So
+ * the scope lives in one JSON file both of them read, and neither can drift from the other.
+ * It sits next to this file because that is what the gateway image copies.
+ */
+export const DEMO_MISSION_PATH = new URL('demo-mission.json', import.meta.url);
+
+interface DemoMissionDocument {
+  intent: string;
+  permissions: unknown;
+  network: unknown;
+  limits: unknown;
+}
+
+export function readDemoMission(): DemoMissionDocument {
+  const raw = JSON.parse(readFileSync(DEMO_MISSION_PATH, 'utf8')) as DemoMissionDocument;
+
+  // Named field by field: the document also carries a `notes` array explaining why its network
+  // rules are wider than its resource scope, and the management API rejects unknown fields.
+  return {
+    intent: raw.intent,
+    permissions: raw.permissions,
+    network: raw.network,
+    limits: raw.limits,
+  };
+}
 
 export interface MissionDocuments {
   permissions: MissionPermissions;
@@ -83,49 +114,14 @@ export async function seed(prisma: PrismaClient): Promise<void> {
     update: credential,
   });
 
+  const scope = readDemoMission();
   const mission = {
     principalId: 'pri_stephane',
     agentId: 'agt_demo',
-    intent: 'Investigate issue #423 and create a pull request',
+    intent: scope.intent,
     status: 'active',
     environment: 'development',
-    ...validateMissionDocuments({
-      permissions: {
-        resources: ['github:acme/payments'],
-        allowedActions: [
-          'repo.read',
-          'issue.read',
-          'pull_request.read',
-          'branch.create',
-          'pull_request.create',
-        ],
-        approvalActions: ['pull_request.create'],
-        // `repository.delete` is what demo case 5 exercises: the network rules below route the
-        // DELETE so that this list is what refuses it. `pull_request.merge` is defence in
-        // depth — no rule routes a PUT, so nothing reaches the engine to be judged today, and
-        // it is listed so that the action is already refused the day somebody adds one.
-        deniedActions: ['pull_request.merge', 'repository.delete'],
-      },
-      network: {
-        allow: [
-          // The whole org, on GET, on purpose: the network layer here is coarser than the
-          // mission's resource scope, so a read of `acme/secret-project` is carried as far as
-          // the policy engine and refused there (SPEC demo case 3 — "the credential could
-          // access it; policy blocks it"). A rule narrowed to `payments` would refuse the same
-          // request one stage earlier and demonstrate the opposite.
-          { host: 'api.github.com', path: '/repos/acme/**', methods: ['GET'] },
-          { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
-          // Routed on purpose, so that what refuses a repository deletion is the mission's
-          // `deniedActions` list and not the absence of a route. The two are both a 403 to the
-          // caller and a different sentence in the audit trail: "no network rule allows DELETE"
-          // says nobody thought about it, "action repository.delete is denied by the mission"
-          // says somebody did. SPEC demo case 5 is about the second one.
-          { host: 'api.github.com', path: '/repos/acme/payments', methods: ['DELETE'] },
-        ],
-        deny: [],
-      },
-      limits: { maxRequests: 500, maxBytes: 50_000_000, requestsPerMinute: 60 },
-    }),
+    ...validateMissionDocuments(scope),
     expiresAt: new Date(Date.now() + MISSION_TTL_MS),
   };
 

@@ -1,0 +1,40 @@
+{
+  "notes": [
+    "The mission the SPEC demo is about. One document, read by two callers that cannot import",
+    "each other: prisma/seed.ts (compiled into the gateway image) and scripts/demo-orchestrator.mjs",
+    "(host-side, issues a fresh mission per run). Anything written twice drifts, so this is written",
+    "once. `notes` is ignored by both readers — the management API refuses unknown fields.",
+    "",
+    "network.allow is deliberately coarser than permissions.resources. GET reaches the whole acme",
+    "org so that a read of acme/secret-project is carried as far as the policy engine and refused",
+    "there by the resource scope (demo case 3: the credential could access it, policy blocks it).",
+    "DELETE on the repository root is routed for the same reason: case 5 is about deniedActions",
+    "refusing a deletion, not about the network never carrying one. A rule narrowed to payments",
+    "would refuse both requests one stage earlier and demonstrate the opposite.",
+    "",
+    "pull_request.merge is defence in depth: nothing routes a PUT, so no request reaches the engine",
+    "to be judged against it today. It is listed so the action is already refused the day a rule does."
+  ],
+  "intent": "Investigate issue #423 and create a pull request",
+  "permissions": {
+    "resources": ["github:acme/payments"],
+    "allowedActions": [
+      "repo.read",
+      "issue.read",
+      "pull_request.read",
+      "branch.create",
+      "pull_request.create"
+    ],
+    "approvalActions": ["pull_request.create"],
+    "deniedActions": ["pull_request.merge", "repository.delete"]
+  },
+  "network": {
+    "allow": [
+      { "host": "api.github.com", "path": "/repos/acme/**", "methods": ["GET"] },
+      { "host": "api.github.com", "path": "/repos/acme/payments/pulls", "methods": ["POST"] },
+      { "host": "api.github.com", "path": "/repos/acme/payments", "methods": ["DELETE"] }
+    ],
+    "deny": []
+  },
+  "limits": { "maxRequests": 500, "maxBytes": 50000000, "requestsPerMinute": 60 }
+}

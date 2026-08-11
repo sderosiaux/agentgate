@@ -23,6 +23,15 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Which demo this is, taken from the invocation before `.env` is merged in.
+ *
+ * `.env` is the stack's configuration and is shared with compose; a `DEMO_MODE=host` line left
+ * in it would otherwise turn `make demo` into a host run without saying so, and the run would
+ * quietly stop proving the one thing only containers can prove.
+ */
+const INVOKED_MODE = process.env['DEMO_MODE'];
+
 /** What the agent prints when it needs the outside world to do something (see `cases.ts`). */
 const APPROVAL_MARKER = 'DEMO_MARKER:APPROVAL_PENDING';
 const EXPIRE_MARKER = 'DEMO_MARKER:EXPIRE_MISSION';
@@ -43,42 +52,29 @@ const APPROVED_SPELLINGS = new Set(['1', 'true', 'yes', 'on']);
 const HOST_PORT_DEFAULTS = { DEMO_GATEWAY_PORT: 8099, DEMO_MOCK_GITHUB_PORT: 3001 };
 
 /**
- * The mission the demo is about, mirroring the seed: `pull_request.create` needs a human,
- * `repository.delete` is refused outright, and nothing outside `acme/payments` is in scope.
+ * The mission every run is issued, read from the one document the seed reads too
+ * (`apps/gateway/prisma/demo-mission.json`). Written once rather than mirrored: a copy here and
+ * a copy there is a demo that passes against a mission nobody deployed.
  */
-const MISSION_SCOPE = {
-  intent: 'Investigate issue #423 and create a pull request',
-  permissions: {
-    resources: ['github:acme/payments'],
-    allowedActions: [
-      'repo.read',
-      'issue.read',
-      'pull_request.read',
-      'branch.create',
-      'pull_request.create',
-    ],
-    approvalActions: ['pull_request.create'],
-    // Case 5 exercises `repository.delete`, which the network rules below deliberately route.
-    // `pull_request.merge` is defence in depth: nothing routes a PUT, so no request reaches the
-    // engine to be judged against it today — it is listed so the action is already refused the
-    // day a rule does. Identical to the seed.
-    deniedActions: ['pull_request.merge', 'repository.delete'],
-  },
-  network: {
-    allow: [
-      // Coarser than the resource scope, so case 3's read of `acme/secret-project` reaches the
-      // policy engine instead of dying at the network rules. Identical to the seed.
-      { host: 'api.github.com', path: '/repos/acme/**', methods: ['GET'] },
-      { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
-      // Case 5 is about the policy refusing a deletion, not about the network never routing
-      // one. Kept identical to the seed (apps/gateway/prisma/seed.ts): a demo run must not be
-      // scoped more loosely than the mission the seed hands the same agent.
-      { host: 'api.github.com', path: '/repos/acme/payments', methods: ['DELETE'] },
-    ],
-    deny: [],
-  },
-  limits: { maxRequests: 500, maxBytes: 50_000_000, requestsPerMinute: 60 },
-};
+const DEMO_MISSION_PATH = path.join(ROOT, 'apps/gateway/prisma/demo-mission.json');
+
+function readMissionScope() {
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(DEMO_MISSION_PATH, 'utf8'));
+  } catch (error) {
+    fail(`could not read ${DEMO_MISSION_PATH}: ${error.message}`);
+  }
+
+  // Field by field: the document carries a `notes` array explaining itself, and the management
+  // API refuses a create body with fields it does not know.
+  return {
+    intent: raw.intent,
+    permissions: raw.permissions,
+    network: raw.network,
+    limits: raw.limits,
+  };
+}
 
 function loadEnvFile() {
   let contents;
@@ -93,6 +89,11 @@ function loadEnvFile() {
     if (match === null) {
       continue;
     }
+    if (match[1] === 'DEMO_MODE' && match[2] !== INVOKED_MODE) {
+      log(`ignoring DEMO_MODE=${match[2]} from .env: the mode comes from the make target`);
+      continue;
+    }
+
     // Never overrides: an operator exporting a value in their shell means it.
     process.env[match[1]] ??= match[2];
   }
@@ -170,6 +171,28 @@ async function assertPortIsFree(port, what, override) {
     probe.listen({ port, host: '127.0.0.1', exclusive: true }, () => {
       probe.close(() => resolve());
     });
+  });
+}
+
+/**
+ * Everything this run spawned and is responsible for killing. Module-level so a signal handler
+ * can reach it: a Ctrl-C that leaves a gateway and a mock upstream holding ports turns the next
+ * run into a port-collision failure with no visible cause.
+ */
+const started = [];
+
+function stopStarted() {
+  while (started.length > 0) {
+    started.pop()?.kill('SIGTERM');
+  }
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    log(`${signal} received, stopping what this run started`);
+    stopStarted();
+    // 128 + signal number, as a shell reports it.
+    process.exit(signal === 'SIGINT' ? 130 : 143);
   });
 }
 
@@ -253,7 +276,7 @@ async function issueMission(management, credentialAlias) {
   const mission = await management.call('POST', '/api/v1/missions', {
     principalId: principal.id,
     agentId: agent.id,
-    ...MISSION_SCOPE,
+    ...readMissionScope(),
     expiresAt: new Date(Date.now() + MISSION_TTL_MS).toISOString(),
   });
   const minted = await management.call('POST', `/api/v1/missions/${mission.id}/tokens`, {});
@@ -290,7 +313,21 @@ function attachMarkerWatcher(child, management, missionId, autoApprove) {
             }),
           )
           .then(() => log(`approved ${approvalId}`))
-          .catch((error) => log(`could not approve ${approvalId}: ${error.message}`)),
+          .catch(async (error) => {
+            log(`could not approve ${approvalId}: ${error.message}`);
+
+            // The agent is now waiting for a decision that is never coming, and would sit there
+            // until its own timeout — two minutes of nothing, for a cause known at second two.
+            // Denying it is the honest way to end the wait: the agent fails case 4 immediately,
+            // the reason above is right next to it in the same output, and the audit row says
+            // who decided and why.
+            await management
+              .call('POST', `/api/v1/approvals/${approvalId}/deny`, {
+                decidedBy: 'demo-orchestrator (auto-approve failed)',
+              })
+              .then(() => log(`denied ${approvalId} so the agent stops waiting`))
+              .catch((denial) => log(`could not deny ${approvalId} either: ${denial.message}`));
+          }),
       );
     }
 
@@ -357,19 +394,30 @@ async function composeMode(autoApprove) {
       '--rm',
       // No TTY: this output is read line by line by the marker watcher above.
       '-T',
+      // Names only, never `NAME=value`. A `-e AGENTGATE_TOKEN=<jwt>` would put a live mission
+      // token in this process's argv, where `ps` shows it to every user on the host for the
+      // hour it stays valid — the one place a credential must not turn up in a product whose
+      // whole claim is that the agent never holds one. Given a bare name, compose forwards the
+      // value from the environment below, which no process table lists.
       '-e',
-      'AGENTGATE_URL=http://gateway:8080',
+      'AGENTGATE_URL',
       '-e',
-      `AGENTGATE_TOKEN=${session.token}`,
+      'AGENTGATE_TOKEN',
       '-e',
-      'AGENTGATE_CREDENTIAL=github_work',
+      'AGENTGATE_CREDENTIAL',
       '-e',
-      `AGENTGATE_WEB_URL=${webConsoleUrl()}`,
-      '-e',
-      'DEMO_MODE=container',
+      'AGENTGATE_WEB_URL',
       'demo-agent',
     ],
-    {},
+    {
+      env: {
+        ...process.env,
+        AGENTGATE_URL: 'http://gateway:8080',
+        AGENTGATE_TOKEN: session.token,
+        AGENTGATE_CREDENTIAL: 'github_work',
+        AGENTGATE_WEB_URL: webConsoleUrl(),
+      },
+    },
     management,
     session.missionId,
     autoApprove,
@@ -440,13 +488,6 @@ async function hostMode(autoApprove) {
   await assertPortIsFree(mockGithubPort, 'the mock GitHub', 'DEMO_MOCK_GITHUB_PORT');
   await assertPortIsFree(gatewayPort, 'the gateway', 'DEMO_GATEWAY_PORT');
 
-  const stopped = [];
-  const stopAll = () => {
-    for (const child of stopped) {
-      child.kill('SIGTERM');
-    }
-  };
-
   try {
     const mockGithub = await startService(
       'mock-github',
@@ -458,7 +499,7 @@ async function hostMode(autoApprove) {
       },
       `http://127.0.0.1:${String(mockGithubPort)}/healthz`,
     );
-    stopped.push(mockGithub);
+    started.push(mockGithub);
 
     const gateway = await startService(
       'gateway',
@@ -471,7 +512,7 @@ async function hostMode(autoApprove) {
       },
       `http://127.0.0.1:${String(gatewayPort)}/healthz`,
     );
-    stopped.push(gateway);
+    started.push(gateway);
 
     const management = new Management(
       `http://127.0.0.1:${String(gatewayPort)}`,
@@ -519,13 +560,13 @@ async function hostMode(autoApprove) {
       autoApprove,
     );
   } finally {
-    stopAll();
+    stopStarted();
   }
 }
 
 loadEnvFile();
 
-const mode = process.env['DEMO_MODE'] === 'host' ? 'host' : 'compose';
+const mode = INVOKED_MODE === 'host' ? 'host' : 'compose';
 // Explicitly true, or absent. `!== '0'` read `DEMO_AUTO_APPROVE=false` as a yes, which is the
 // one spelling somebody turning it off is most likely to reach for. Absent still means on: the
 // demo is meant to run unattended, and an .env that never mentions the variable should not
