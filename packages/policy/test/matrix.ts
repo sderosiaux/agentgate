@@ -229,6 +229,27 @@ export const DECISION_MATRIX: readonly DecisionCase[] = [
     expected: outOfScope('github:acme/payments-staging'),
   },
   {
+    name: 'an action list naming an object member decides on the string, not the prototype',
+    permissions: permissions(SCOPE, ['repo.read'], [], ['toString', '__proto__', 'constructor']),
+    resource: PAYMENTS,
+    action: { type: 'repo.read', method: 'GET' },
+    expected: allow('repo.read'),
+  },
+  {
+    name: 'an object member name can itself be a granted action',
+    permissions: permissions(SCOPE, ['toString'], [], []),
+    resource: PAYMENTS,
+    action: { type: 'toString', method: 'GET' },
+    expected: allow('toString'),
+  },
+  {
+    name: 'denying an object member name denies that name and nothing else',
+    permissions: permissions(SCOPE, ['repo.read'], [], ['constructor']),
+    resource: PAYMENTS,
+    action: { type: 'issue.read', method: 'GET' },
+    expected: allow('issue.read'),
+  },
+  {
     name: 'there is no wildcard in the scope list',
     permissions: permissions(['github:acme/*'], ['repo.read'], [], []),
     resource: PAYMENTS,
@@ -265,3 +286,90 @@ export function inputFor(decisionCase: DecisionCase): PolicyInput {
     data: {},
   };
 }
+
+/**
+ * A well-formed input with one thing broken in it. Deep-cloned first: `inputFor` hands out the
+ * case's own `permissions` and `resource` objects, and breaking those in place would quietly
+ * corrupt every other case in the file.
+ */
+function mutate(breakIt: (draft: Record<string, unknown>) => void): unknown {
+  const draft = structuredClone(inputFor(SAMPLE_CASE)) as unknown as Record<string, unknown>;
+  breakIt(draft);
+  return draft;
+}
+
+/**
+ * Inputs no engine may reason about. Left unchecked these two engines failed open in opposite
+ * directions — `provider: ["github"]` allowed on the builtin through `Array.toString`, a
+ * missing `provider` allowed in the rego through an undefined branch value — so the contract
+ * is now the same on both: never a decision, and never an ALLOW.
+ */
+export const MALFORMED_INPUTS: readonly { name: string; input: unknown }[] = [
+  {
+    name: 'the resource provider is missing',
+    input: mutate((draft) => {
+      delete (draft.resource as { provider?: unknown }).provider;
+    }),
+  },
+  {
+    name: 'the resource is missing entirely',
+    input: mutate((draft) => {
+      delete (draft as { resource?: unknown }).resource;
+    }),
+  },
+  {
+    name: 'the resource provider is an array that stringifies to a real provider',
+    input: mutate((draft) => {
+      draft.resource = { provider: ['github'], id: 'acme/payments' };
+    }),
+  },
+  {
+    name: 'the resource id is a number',
+    input: mutate((draft) => {
+      draft.resource = { provider: 'github', id: 42 };
+    }),
+  },
+  {
+    name: 'the action type is missing',
+    input: mutate((draft) => {
+      draft.action = { method: 'GET' };
+    }),
+  },
+  {
+    name: 'the action type is empty',
+    input: mutate((draft) => {
+      draft.action = { type: '', method: 'GET' };
+    }),
+  },
+  {
+    name: 'the mission permissions are missing',
+    input: mutate((draft) => {
+      delete (draft.mission as { permissions?: unknown }).permissions;
+    }),
+  },
+  {
+    name: 'the mission scope is a string instead of a list',
+    input: mutate((draft) => {
+      (draft.mission as { permissions: Record<string, unknown> }).permissions = {
+        resources: 'github:acme/payments',
+        allowedActions: ['repo.read'],
+        approvalActions: [],
+        deniedActions: [],
+      };
+    }),
+  },
+  {
+    name: 'an action list holds something that is not a string',
+    input: mutate((draft) => {
+      (draft.mission as { permissions: Record<string, unknown> }).permissions = {
+        resources: ['github:acme/payments'],
+        allowedActions: [{ type: 'repo.read' }],
+        approvalActions: [],
+        deniedActions: [],
+      };
+    }),
+  },
+  { name: 'the input is an empty object', input: {} },
+  { name: 'the input is null', input: null },
+  { name: 'the input is a string', input: 'repo.read' },
+];

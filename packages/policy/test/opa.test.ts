@@ -4,7 +4,8 @@ import { AgentGateError } from '@agentgate/shared';
 import { afterEach, describe, expect, test } from 'vitest';
 import { createBuiltinEngine } from '../src/engine.js';
 import { createOpaEngine } from '../src/opa.js';
-import { DECISION_MATRIX, SAMPLE_CASE, inputFor } from './matrix.js';
+import type { PolicyInput } from '../src/types.js';
+import { DECISION_MATRIX, MALFORMED_INPUTS, SAMPLE_CASE, inputFor } from './matrix.js';
 
 const running: Server[] = [];
 
@@ -107,6 +108,21 @@ describe('createOpaEngine', () => {
     );
   });
 
+  test.each(MALFORMED_INPUTS)('refuses $name without calling out', async ({ input }) => {
+    let called = false;
+    const url = await serving(() => {
+      called = true;
+      return {
+        payload: JSON.stringify({ result: { decision: 'ALLOW', reason: 'should never be asked' } }),
+      };
+    });
+
+    await expect(createOpaEngine(url).evaluate(input as PolicyInput)).rejects.toThrowError(
+      AgentGateError,
+    );
+    expect(called, 'a malformed input must not reach the policy engine').toBe(false);
+  });
+
   test('an unreachable engine is an error', async () => {
     // Port 1 on loopback: nothing listens there, the connection is refused immediately.
     await expect(
@@ -120,13 +136,33 @@ describe('createOpaEngine', () => {
  * OPA. Run it with `OPA_URL=http://127.0.0.1:8181 pnpm --filter @agentgate/policy test`.
  */
 describe.skipIf(!process.env['OPA_URL'])('opa parity', () => {
-  const opa = createOpaEngine(process.env['OPA_URL'] ?? '');
+  const opaUrl = process.env['OPA_URL'] ?? '';
+  const opa = createOpaEngine(opaUrl);
   const builtin = createBuiltinEngine();
+
+  /** Straight to the rego, past the client's own validation, to see what the policy alone says. */
+  async function askRego(input: unknown): Promise<{ decision?: string } | undefined> {
+    const response = await fetch(`${opaUrl.replace(/\/+$/, '')}/v1/data/agentgate/decision`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input }),
+    });
+    const body = (await response.json()) as { result?: { decision?: string } };
+    return body.result;
+  }
 
   test.each(DECISION_MATRIX)('$name', async (decisionCase) => {
     const policyInput = inputFor(decisionCase);
 
     await expect(opa.evaluate(policyInput)).resolves.toEqual(decisionCase.expected);
     await expect(opa.evaluate(policyInput)).resolves.toEqual(await builtin.evaluate(policyInput));
+  });
+
+  test.each(MALFORMED_INPUTS)('both engines refuse $name', async ({ input }) => {
+    await expect(builtin.evaluate(input as PolicyInput)).rejects.toThrowError(AgentGateError);
+    await expect(opa.evaluate(input as PolicyInput)).rejects.toThrowError(AgentGateError);
+
+    // And if one ever slipped past the client, the policy itself still must not allow it.
+    expect(await askRego(input)).toMatchObject({ decision: 'DENY' });
   });
 });

@@ -1,6 +1,6 @@
 import type { PolicyDecision } from '@agentgate/shared';
 import { actionImplied } from './actions.js';
-import type { PolicyEngine, PolicyInput } from './types.js';
+import { parsePolicyInput, type PolicyEngine, type PolicyInput } from './types.js';
 
 function covers(grants: readonly string[], requested: string): boolean {
   return grants.some((granted) => actionImplied(granted, requested));
@@ -61,8 +61,10 @@ function decide(input: PolicyInput): PolicyDecision {
 
 export function createBuiltinEngine(): PolicyEngine {
   return {
-    evaluate(input: PolicyInput): Promise<PolicyDecision> {
-      return Promise.resolve(decide(input));
+    // `async` so a malformed input rejects the promise instead of throwing at the call site:
+    // callers handle one failure channel, not two.
+    async evaluate(input: PolicyInput): Promise<PolicyDecision> {
+      return decide(parsePolicyInput(input));
     },
   };
 }

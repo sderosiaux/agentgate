@@ -1,6 +1,6 @@
 import { AgentGateError, DECISIONS, type PolicyDecision } from '@agentgate/shared';
 import { z } from 'zod';
-import type { PolicyEngine, PolicyInput } from './types.js';
+import { parsePolicyInput, type PolicyEngine, type PolicyInput } from './types.js';
 
 /** A policy call sits on the request path: a hung OPA must fail the request, not hold it. */
 const TIMEOUT_MS = 2_000;
@@ -27,12 +27,16 @@ export function createOpaEngine(opaUrl: string): PolicyEngine {
 
   return {
     async evaluate(input: PolicyInput): Promise<PolicyDecision> {
+      // Checked here, not just in the rego: a malformed question is refused before it costs a
+      // round trip, and both engines refuse the same set of documents.
+      const validated = parsePolicyInput(input);
+
       let response: Response;
       try {
         response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ input }),
+          body: JSON.stringify({ input: validated }),
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
       } catch (error) {
