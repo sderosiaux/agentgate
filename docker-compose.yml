@@ -13,7 +13,7 @@ volumes:
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     networks: [service-net]
     environment:
       POSTGRES_USER: agentgate
