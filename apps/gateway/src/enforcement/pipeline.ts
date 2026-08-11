@@ -338,9 +338,18 @@ async function execute(
   attempt.destHost = normalized.host;
   attempt.destPath = normalized.path;
 
-  // 5 — the credential, by metadata only. Nothing is decrypted before a verdict exists.
+  // 5 — the credential, by metadata only. Nothing is decrypted before a verdict exists, and the
+  // explicit `select` is what makes that structural rather than a promise: the ciphertext is
+  // not fetched, so no amount of later code can decrypt it from here.
   const credential = await deps.prisma.credential.findUnique({
     where: { alias: request.credential },
+    select: {
+      alias: true,
+      provider: true,
+      logicalHost: true,
+      upstreamBaseUrl: true,
+      status: true,
+    },
   });
   if (credential === null || credential.status !== 'active') {
     denied(
