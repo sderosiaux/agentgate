@@ -21,6 +21,18 @@ describe('createBuiltinEngine', () => {
     );
   });
 
+  test('a mission listing an object member as an action still decides', async () => {
+    const input = inputFor(SAMPLE_CASE);
+    input.mission.permissions = {
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+      deniedActions: ['toString', '__proto__', 'constructor'],
+    };
+
+    await expect(engine.evaluate(input)).resolves.toEqual(SAMPLE_CASE.expected);
+  });
+
   test('network rules are the pipeline’s business, not the engine’s', async () => {
     const input = inputFor(SAMPLE_CASE);
     input.mission.network = { allow: [], deny: [{ host: '*' }] };

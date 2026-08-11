@@ -45,6 +45,16 @@ describe('actionImplied', () => {
     expect(actionImplied('repo.read', 'repo.read.extra')).toBe(false);
   });
 
+  test('an action named after an object member is just a string', () => {
+    // A plain object lookup would hand back `Object.prototype.toString`, a function with no
+    // `.includes`, and the TypeError would leave `evaluate` as a bare 500 instead of a deny.
+    for (const member of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(actionImplied(member, 'repo.read')).toBe(false);
+      expect(actionImplied(member, member)).toBe(true);
+      expect(actionImplied('repo.read', member)).toBe(false);
+    }
+  });
+
   test('unknown actions fall back to strict equality', () => {
     expect(actionImplied('made.up', 'made.up')).toBe(true);
     expect(actionImplied('made.up', 'issue.read')).toBe(false);
