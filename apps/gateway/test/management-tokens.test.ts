@@ -138,6 +138,46 @@ test('SPEC demo case 6: force-expiring a mission denies the next request through
   expect((await mintFor(harness, harness.missionId)).statusCode).toBe(409);
 });
 
+test('a gateway with no signing key says so, rather than failing as if it were broken', async () => {
+  const harness = await start({ verifyOnly: true });
+
+  const refused = await mintFor(harness, harness.missionId);
+
+  expect(refused.statusCode).toBe(503);
+  const body = refused.json();
+  expect(body).toMatchObject({ error: 'agentgate_upstream_error' });
+  // Machine-readable enough to act on: the reason names the setting that is missing.
+  expect(String(body['reason'])).toContain('AGENTGATE_JWT_PRIVATE_KEY');
+  // And no key material of any kind travels with it.
+  expect(refused.body).not.toContain(process.env['AGENTGATE_JWT_PUBLIC_KEY'] ?? 'unset');
+
+  // A verify-only gateway is a supported deployment, not a broken one: everything else answers.
+  expect((await harness.admin('GET', '/api/v1/stats/overview')).statusCode).toBe(200);
+  expect((await harness.admin('GET', `/api/v1/missions/${harness.missionId}`)).statusCode).toBe(
+    200,
+  );
+  expect(
+    (await harness.admin('POST', `/api/v1/missions/${harness.missionId}/expire`)).statusCode,
+  ).toBe(200);
+});
+
+test('a verify-only gateway still enforces with a token minted elsewhere', async () => {
+  const minting = await start();
+  const token = String((await mintFor(minting, minting.missionId)).json()['token']);
+
+  // Same database, same mission, a gateway that holds only the public key: the proxy path is
+  // untouched by the absence of a signing key.
+  const verifying = await start({ verifyOnly: true });
+  const response = await verifying.app.inject({
+    method: 'POST',
+    url: '/v1/proxy',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { credential: minting.alias, ...READ_REPO },
+  });
+
+  expect(response.statusCode).toBe(200);
+});
+
 test('force-expiring twice is not an error: the request is "make sure this cannot be used"', async () => {
   const harness = await start();
 

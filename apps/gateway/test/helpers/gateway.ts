@@ -75,6 +75,13 @@ export interface HarnessOptions {
   engine?: PolicyEngine;
   /** What the pipeline reads as "now". Mutable, so a test can move the clock. */
   now?: Date;
+  /**
+   * A gateway started without the signing key, which is a supported deployment: enforcement
+   * only ever verifies, and a fleet can run any number of gateways that cannot mint. Everything
+   * about it is derived from this one flag, so the wiring cannot claim one thing and hold
+   * another.
+   */
+  verifyOnly?: boolean;
 }
 
 export interface Harness {
@@ -171,8 +178,10 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     },
   });
 
+  const jwtPrivateKey =
+    options.verifyOnly === true ? undefined : process.env['AGENTGATE_JWT_PRIVATE_KEY'];
   const tokenService = createTokenService(
-    process.env['AGENTGATE_JWT_PRIVATE_KEY'],
+    jwtPrivateKey,
     process.env['AGENTGATE_JWT_PUBLIC_KEY'] ?? '',
   );
 
@@ -192,6 +201,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     environment: 'development',
     adminToken: ADMIN_TOKEN,
     masterKey: MASTER_KEY,
+    canMintTokens: jwtPrivateKey !== undefined,
     logger: createLogger({
       level: 'trace',
       destination: {

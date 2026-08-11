@@ -42,6 +42,9 @@ const app = buildApp({
   environment: config.environment,
   adminToken: config.adminToken,
   masterKey: config.masterKey,
+  // The one place that knows whether this process was given a signing key. Derived from the
+  // same value the token service was built with, so the two cannot disagree.
+  canMintTokens: config.jwtPrivateKey !== undefined,
   logger,
 });
 

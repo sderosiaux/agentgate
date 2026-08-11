@@ -21,12 +21,14 @@ export interface GatewayDeps extends PipelineDeps {
    * path never sees it — it reads through `secretStore`, which holds its own copy.
    */
   masterKey: string;
+  /** Whether this gateway holds a signing key. False is a verify-only deployment, not a fault. */
+  canMintTokens: boolean;
   logger?: Logger;
   fastify?: FastifyServerOptions;
 }
 
 export function buildApp(deps: GatewayDeps): FastifyInstance {
-  const { logger, fastify, adminToken, masterKey, ...pipeline } = deps;
+  const { logger, fastify, adminToken, masterKey, canMintTokens, ...pipeline } = deps;
 
   // Request ids are AgentGate ids: the same value is echoed as `request_id` in error bodies,
   // stored on every audit event and sent upstream as `x-request-id`.
@@ -54,6 +56,7 @@ export function buildApp(deps: GatewayDeps): FastifyInstance {
       clock: pipeline.clock,
       adminToken,
       masterKey,
+      canMintTokens,
     }),
   );
 

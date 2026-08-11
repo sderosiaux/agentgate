@@ -1,4 +1,5 @@
 import {
+  AgentGateError,
   MissionLimitsSchema,
   MissionPermissionsSchema,
   NetworkRulesSchema,
@@ -263,10 +264,21 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
           tags: ['missions'],
           summary: 'Mint an agent token for this mission',
           params: z.object({ id: IdSchema }),
-          response: { 200: TokenSchema, ...errorResponses(401, 404, 409) },
+          response: { 200: TokenSchema, ...errorResponses(401, 404, 409, 503) },
         },
       },
       async (request) => {
+        if (!deps.canMintTokens) {
+          // Checked before the mission is even looked up: the answer does not depend on which
+          // mission was asked for, and a gateway that cannot mint should not be reporting on
+          // whether a mission exists as a side effect of being asked to.
+          throw new AgentGateError(
+            'agentgate_upstream_error',
+            503,
+            'this gateway cannot mint agent tokens: AGENTGATE_JWT_PRIVATE_KEY is not configured',
+          );
+        }
+
         const mission = await loadMission(request.params.id);
         const now = deps.clock();
 
