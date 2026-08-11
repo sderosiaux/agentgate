@@ -197,13 +197,34 @@ describe('case 4 — approval', () => {
 });
 
 describe('case 5 — dangerous action', () => {
-  it('passes on a denial and fails on anything else', async () => {
-    const deniedContext = contextFor(new StubGate([denied('repository.delete is denied')]));
-    expect((await caseDangerousAction(deniedContext)).pass).toBe(true);
-    expect(deniedContext.gate.calls[0]?.method).toBe('DELETE');
+  it('passes when the policy engine is what refused it', async () => {
+    const context = contextFor(
+      new StubGate([denied('action repository.delete is denied by the mission')]),
+    );
 
-    const allowedContext = contextFor(new StubGate([response(204, '')]));
-    expect((await caseDangerousAction(allowedContext)).pass).toBe(false);
+    const result = await caseDangerousAction(context);
+
+    expect(result.pass).toBe(true);
+    expect(context.gate.calls[0]?.method).toBe('DELETE');
+    expect(result.evidence.join('\n')).toContain('deniedActions list is what refused it');
+  });
+
+  it('fails on a denial that never reached the policy engine', async () => {
+    // What a mission with no DELETE route answers: the same 403, a weaker claim.
+    const context = contextFor(
+      new StubGate([denied('no network rule allows DELETE api.github.com/repos/acme/payments')]),
+    );
+
+    const result = await caseDangerousAction(context);
+
+    expect(result.pass).toBe(false);
+    expect(result.evidence.join('\n')).toContain('stopped before the policy engine');
+  });
+
+  it('fails when the deletion was forwarded', async () => {
+    const context = contextFor(new StubGate([response(204, '')]));
+
+    expect((await caseDangerousAction(context)).pass).toBe(false);
   });
 });
 

@@ -57,6 +57,10 @@ const MISSION_SCOPE = {
     allow: [
       { host: 'api.github.com', path: '/repos/acme/payments/**', methods: ['GET'] },
       { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
+      // Case 5 is about the policy refusing a deletion, not about the network never routing
+      // one. Kept identical to the seed (apps/gateway/prisma/seed.ts): a demo run must not be
+      // scoped more loosely than the mission the seed hands the same agent.
+      { host: 'api.github.com', path: '/repos/acme/payments', methods: ['DELETE'] },
     ],
     deny: [],
   },

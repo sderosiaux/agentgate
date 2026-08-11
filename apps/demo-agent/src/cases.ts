@@ -82,6 +82,14 @@ export const PULLS_URL = 'https://api.github.com/repos/acme/payments/pulls';
 export const SECRET_REPO_URL = 'https://api.github.com/repos/acme/secret-project';
 export const REPO_URL = 'https://api.github.com/repos/acme/payments';
 
+/**
+ * The action the mission forbids outright (case 5). Named here because the case asserts on the
+ * *reason* the gateway gives: a mission whose network rules do not route a DELETE would refuse
+ * one without the policy engine ever being asked, which is a weaker claim wearing the same
+ * status code. Kept in step with `deniedActions` in the seed and in the orchestrator.
+ */
+const DENIED_ACTION = 'repository.delete';
+
 /** What the orchestrator watches stdout for. Any change here is a change to the orchestrator. */
 export const APPROVAL_MARKER = 'DEMO_MARKER:APPROVAL_PENDING';
 export const EXPIRE_MARKER = 'DEMO_MARKER:EXPIRE_MISSION';
@@ -350,7 +358,15 @@ export async function caseApproval(context: DemoContext): Promise<CaseResult> {
   return { name, pass: false, skipped: false, evidence: lines };
 }
 
-/** Case 5 — the action nobody may take, whatever the credential could do. */
+/**
+ * Case 5 — the action nobody may take, whatever the credential could do.
+ *
+ * The mission routes `DELETE /repos/acme/payments` on purpose, so this is refused by its
+ * `deniedActions` list rather than by the absence of a network rule. Both are a 403; only one
+ * of them is a decision somebody made. The case therefore checks the *reason*, not the status:
+ * a refusal that does not name the action means the request never reached the policy engine,
+ * and the thing this case claims to demonstrate did not happen.
+ */
 export async function caseDangerousAction(context: DemoContext): Promise<CaseResult> {
   const name = CASE_NAMES.dangerousAction;
   const { lines, note } = recorder(context);
@@ -368,9 +384,23 @@ export async function caseDangerousAction(context: DemoContext): Promise<CaseRes
     return { name, pass: false, skipped: false, evidence: lines };
   } catch (error) {
     note(`→ ${describe(error)}`);
+
+    const namesTheAction =
+      error instanceof AgentGateSdkError && error.reason.includes(DENIED_ACTION);
+
+    note(
+      namesTheAction
+        ? `the mission's deniedActions list is what refused it: the reason names ${DENIED_ACTION}`
+        : `the refusal does not name ${DENIED_ACTION}: this request was stopped before the policy engine saw it`,
+    );
     note('no credential was injected: nothing left the gateway');
 
-    return { name, pass: error instanceof AccessDeniedError, skipped: false, evidence: lines };
+    return {
+      name,
+      pass: error instanceof AccessDeniedError && namesTheAction,
+      skipped: false,
+      evidence: lines,
+    };
   }
 }
 

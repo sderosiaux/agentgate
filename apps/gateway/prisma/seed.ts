@@ -106,6 +106,12 @@ export async function seed(prisma: PrismaClient): Promise<void> {
         allow: [
           { host: 'api.github.com', path: '/repos/acme/payments/**', methods: ['GET'] },
           { host: 'api.github.com', path: '/repos/acme/payments/pulls', methods: ['POST'] },
+          // Routed on purpose, so that what refuses a repository deletion is the mission's
+          // `deniedActions` list and not the absence of a route. The two are both a 403 to the
+          // caller and a different sentence in the audit trail: "no network rule allows DELETE"
+          // says nobody thought about it, "action repository.delete is denied by the mission"
+          // says somebody did. SPEC demo case 5 is about the second one.
+          { host: 'api.github.com', path: '/repos/acme/payments', methods: ['DELETE'] },
         ],
         deny: [],
       },
