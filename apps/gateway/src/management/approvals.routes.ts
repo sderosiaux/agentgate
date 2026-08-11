@@ -1,13 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { APPROVAL_STATUSES, type ApprovalView } from '../approvals/service.js';
-import {
-  errorResponses,
-  IdSchema,
-  NextCursorSchema,
-  PageQueryFields,
-  MAX_ID_LENGTH,
-} from './common.js';
+import { errorResponses, IdSchema, NextCursorSchema, PageQueryFields } from './common.js';
 import type { ManagementDeps } from './deps.js';
 
 /** Bounds on what a caller writes into a row that a human will later read back. */
@@ -45,7 +39,7 @@ const ApprovalSchema = z.object({
 
 const ListQuerySchema = z.strictObject({
   status: z.enum(APPROVAL_STATUSES).optional(),
-  missionId: z.string().min(1).max(MAX_ID_LENGTH).optional(),
+  missionId: IdSchema.optional(),
   ...PageQueryFields,
 });
 

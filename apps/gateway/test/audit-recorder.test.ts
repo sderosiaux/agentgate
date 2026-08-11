@@ -117,6 +117,92 @@ test('a field the trail does not know about is refused', async () => {
   await expect(recorder.record(event)).rejects.toThrow();
 });
 
+/**
+ * A snapshot the schema accepts, with whatever the caller wants inside `mission.permissions`.
+ *
+ * That sub-document is `z.unknown()` on purpose — mission scope is admin-authored and the trail
+ * stores it as written — which makes it the one place in a snapshot where the schema has nothing
+ * to say. What happens down there is decided by the recursive key scan and by nothing else.
+ */
+function snapshotWithPermissions(permissions: unknown): Record<string, unknown> {
+  return {
+    identity: { principalId: 'pri_1', agentId: 'agt_1', agentType: 'codex' },
+    mission: {
+      id: 'mis_1',
+      intent: 'Investigate issue #423',
+      permissions,
+      network: { allow: [], deny: [] },
+      expiresAt: '2026-08-11T12:00:00.000Z',
+    },
+    resource: { provider: 'github', id: 'acme/payments' },
+    action: { type: 'repo.read', method: 'GET' },
+    network: { host: 'api.github.com', path: '/repos/acme/payments' },
+    environment: { name: 'development' },
+    currentState: { requestCount: 1, bytesTotal: 0 },
+    data: { bodySize: 0 },
+  };
+}
+
+const HONEST_PERMISSIONS = {
+  resources: ['github:acme/payments'],
+  allowedActions: ['repo.read'],
+  approvalActions: [],
+  deniedActions: [],
+};
+
+test('a credential-shaped key buried in the mission scope is refused', async () => {
+  const id = requestId();
+  const event = {
+    requestId: id,
+    decision: 'ALLOW',
+    reason: 'ok',
+    latencyMs: 1,
+    // Three levels down, inside the one sub-document the schema waves through. A shallow scan
+    // sees `policyInputSnapshot` and nothing else, and this row reaches an append-only table
+    // carrying a credential that cannot then be taken back out of it.
+    policyInputSnapshot: snapshotWithPermissions({ ...HONEST_PERMISSIONS, token: 'ghp_smuggled' }),
+  } as unknown as AuditEventInput;
+
+  await expect(recorder.record(event)).rejects.toThrow(
+    /policyInputSnapshot\.mission\.permissions\.token/,
+  );
+  expect(await prisma.auditEvent.findFirst({ where: { requestId: id } })).toBeNull();
+});
+
+test('a credential-shaped key inside an array in the mission scope is refused', async () => {
+  const event = {
+    requestId: requestId(),
+    decision: 'ALLOW',
+    reason: 'ok',
+    latencyMs: 1,
+    policyInputSnapshot: snapshotWithPermissions({
+      ...HONEST_PERMISSIONS,
+      overrides: [{ resource: 'github:acme/payments', secret: 'ghp_smuggled' }],
+    }),
+  } as unknown as AuditEventInput;
+
+  await expect(recorder.record(event)).rejects.toThrow(/overrides\[0\]\.secret/);
+});
+
+test('the same snapshot without the smuggled key is written, so the refusals above mean something', async () => {
+  const id = requestId();
+
+  await recorder.record({
+    requestId: id,
+    decision: 'ALLOW',
+    reason: 'ok',
+    latencyMs: 1,
+    policyInputSnapshot: snapshotWithPermissions(HONEST_PERMISSIONS),
+  } as unknown as AuditEventInput);
+
+  const stored = await prisma.auditEvent.findFirstOrThrow({ where: { requestId: id } });
+
+  expect(stored.policyInputSnapshot).toMatchObject({
+    mission: { id: 'mis_1', permissions: HONEST_PERMISSIONS },
+    action: { type: 'repo.read', method: 'GET' },
+  });
+});
+
 test('a decision the trail does not know about is refused', async () => {
   const event = {
     requestId: requestId(),

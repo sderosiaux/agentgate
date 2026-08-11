@@ -94,6 +94,25 @@ export interface AuditRecorder {
  * Names that carry credential material by convention. The schema above already refuses
  * anything it does not name, but a future field called `authorizationHeader` would have to
  * pass here too: the trail is append-only, so a secret written into it cannot be taken back.
+ *
+ * WARNING — read before adding a field anywhere a snapshot can reach.
+ *
+ * Every alternative but `body` is an unanchored substring match, and that is deliberate:
+ * `authorizationHeader` and `refreshToken` have to be caught, and anchoring each one would be a
+ * list of exact spellings that the next well-meaning name walks straight past. The `^body$`
+ * anchor is the proof it was a choice — `bodySize` and `bodyHash` are metadata this trail wants,
+ * so that one alternative is pinned and the rest are not.
+ *
+ * The cost is real and worth stating plainly. A field called `maxTokens`, `limitValues` or
+ * `tokenizer` — anywhere in the event, at any depth, including inside the mission scope an
+ * administrator authored — makes `record` throw. `record` is awaited in the pipeline's `finally`
+ * and its failure is not swallowed, so that is not a logging hiccup: it is every proxied request
+ * answering 500 until the name is changed.
+ *
+ * That is the intended failure direction. An unaudited request is one this gateway is not
+ * willing to have served, and a false positive is a name somebody can rename in a minute, while
+ * a false negative is a credential in an append-only table forever. Widen the pattern only by
+ * making it more specific — never by dropping an alternative to unblock a build.
  */
 const FORBIDDEN_KEY = /authorization|credential|secret|password|cookie|token|value|^body$/i;
 
