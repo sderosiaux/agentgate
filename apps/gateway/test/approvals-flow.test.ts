@@ -169,6 +169,9 @@ test('approved, retried, and the request goes through exactly as an ALLOW would'
     matchedPolicy: 'approval-grant',
     approvalId,
     httpStatus: 201,
+    // The decision that was made, not the rule that gated it: an ALLOW row reading "requires
+    // human approval" is the one sentence a reader would take the wrong way.
+    reason: `approval ${approvalId} consumed`,
   });
 });
 

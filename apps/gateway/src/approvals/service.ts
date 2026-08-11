@@ -129,8 +129,16 @@ function toView(row: ApprovalRow): ApprovalView {
   };
 }
 
-/** Which of the six outcomes an approval that survived the conditional update deserves. */
-function classify(row: ApprovalRow | null, binding: ApprovalBinding): ConsumeOutcome {
+/**
+ * Which of the six outcomes an approval that survived the conditional update deserves.
+ *
+ * `now` is not decoration: this used to infer `expired` from "approved, bound, and the update
+ * still refused it", which is false in one interleaving that actually happens — the agent
+ * presents the id while the row is pending, the update correctly refuses, and a human approves
+ * before this read. The row is then approved with five minutes left on it, and the inference
+ * called it expired. The deadline is checked, never deduced.
+ */
+function classify(row: ApprovalRow | null, binding: ApprovalBinding, now: Date): ConsumeOutcome {
   if (row === null) {
     return 'not_found';
   }
@@ -159,9 +167,18 @@ function classify(row: ApprovalRow | null, binding: ApprovalBinding): ConsumeOut
     return 'not_approved';
   }
 
-  // Approved, bound correctly, and the update still refused it: the deadline is the only thing
-  // left that can have stopped it.
-  return 'expired';
+  // An approved row always carries a deadline; one that does not is a row this module did not
+  // write, and an approval whose expiry cannot be established authorises nothing.
+  if (row.grantExpiresAt === null || row.grantExpiresAt.getTime() <= now.getTime()) {
+    return 'expired';
+  }
+
+  // Approved, bound, and still inside its grant — yet the update refused it, so the row became
+  // approved after that statement ran. The update is what decides, and at the moment it ran
+  // this approval was not approved; saying so is the honest answer, and it is also the stable
+  // one. Retrying the consume here would make the verdict depend on how long a diagnostic read
+  // took. The agent is already polling its approval, and its next retry succeeds.
+  return 'not_approved';
 }
 
 /**
@@ -328,13 +345,19 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
       }
 
       const row = await findById(id);
-      const outcome = classify(row, binding);
+      const outcome = classify(row, binding, now);
 
       // Marked on first notice, like an expired mission: a grant whose deadline has passed must
       // not keep telling a human it is approved and waiting to be used.
+      //
+      // The deadline is re-stated in the WHERE rather than trusted from the row just read. This
+      // is the one destructive write in the module — it throws away a human decision — and the
+      // row it acts on was read outside any transaction, so it may already be a different row.
+      // Restating the condition makes expiring a live grant impossible here even if the
+      // classification above ever gets it wrong again.
       if (outcome === 'expired' && row?.status === 'approved') {
         await prisma.approval.updateMany({
-          where: { id, status: 'approved' },
+          where: { id, status: 'approved', grantExpiresAt: { lte: now } },
           data: { status: 'expired' },
         });
       }

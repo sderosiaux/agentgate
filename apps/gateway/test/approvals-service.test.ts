@@ -50,6 +50,105 @@ async function pending() {
   });
 }
 
+type ApprovalRecord = Awaited<ReturnType<typeof prisma.approval.findUniqueOrThrow>>;
+
+/**
+ * A client with one or two calls swapped out, so a test can pin an interleaving that is
+ * otherwise a matter of microseconds. Everything this does not name goes to the real database,
+ * which is the point: the rows the service writes are real rows, checked afterwards.
+ */
+function clientWith(patch: {
+  /** Wraps the read that explains why a consume refused. */
+  onLookup?: (real: () => Promise<ApprovalRecord | null>) => Promise<ApprovalRecord | null>;
+  /** Makes the conditional UPDATE report that it applied to nothing. */
+  consumeApplies?: false;
+}): PrismaClient {
+  const approval = new Proxy(prisma.approval as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property) as unknown;
+
+      if (property === 'findUnique' && patch.onLookup !== undefined) {
+        return async (args: unknown) =>
+          patch.onLookup?.(async () =>
+            (value as (a: unknown) => Promise<ApprovalRecord | null>).call(target, args),
+          );
+      }
+
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+  return new Proxy(prisma as object, {
+    get(target, property) {
+      if (property === 'approval') {
+        return approval;
+      }
+      if (property === '$queryRaw' && patch.consumeApplies === false) {
+        return async () => [];
+      }
+
+      const value = Reflect.get(target, property) as unknown;
+
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as PrismaClient;
+}
+
+test('a human deciding between the update and the read does not lose their grant', async () => {
+  const { approvalId } = await pending();
+
+  // The interleaving: the agent presents the id while the row is still pending, so the
+  // conditional update refuses it — and the human approves before the read that explains why.
+  const racing = createApprovalService(
+    clientWith({
+      onLookup: async (real) => {
+        await service.approve(approvalId, 'alice');
+
+        return real();
+      },
+    }),
+    () => clock.now,
+  );
+
+  const outcome = await racing.tryConsume(approvalId, binding());
+
+  // Honest about the moment that decided: at the update, this approval was not approved.
+  expect(outcome).toBe('not_approved');
+
+  // And the human's decision survives being observed.
+  const row = await prisma.approval.findUniqueOrThrow({ where: { id: approvalId } });
+  expect(row.status).toBe('approved');
+  expect(row.grantExpiresAt).toEqual(new Date(clock.now.getTime() + APPROVAL_GRANT_TTL_MS));
+
+  expect(await service.tryConsume(approvalId, binding())).toBe('consumed');
+});
+
+test('the expiry marking cannot reach a grant that has not expired', async () => {
+  const { approvalId } = await pending();
+  await service.approve(approvalId, 'alice');
+
+  // Defence in depth: whatever the explaining read believes — here a copy claiming the
+  // deadline has passed while the real row is fresh — the write it triggers must not be able
+  // to expire a live grant. This is the guard on the marking statement itself.
+  const lying = createApprovalService(
+    clientWith({
+      consumeApplies: false,
+      onLookup: async (real) => {
+        const row = await real();
+
+        return row === null ? null : { ...row, grantExpiresAt: new Date(clock.now.getTime() - 1) };
+      },
+    }),
+    () => clock.now,
+  );
+
+  expect(await lying.tryConsume(approvalId, binding())).toBe('expired');
+
+  const row = await prisma.approval.findUniqueOrThrow({ where: { id: approvalId } });
+  expect(row.status).toBe('approved');
+  expect(await service.tryConsume(approvalId, binding())).toBe('consumed');
+});
+
 test('a pending approval records what was asked, and nothing has been decided yet', async () => {
   const { approvalId, created } = await pending();
 

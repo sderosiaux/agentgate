@@ -536,6 +536,11 @@ async function execute(
     attempt.matchedPolicy = verdict.matchedPolicy;
   }
 
+  // What the trail records as the reason this attempt ended the way it did. The engine's own
+  // wording, unless a grant is what let the request through — an ALLOW row reading "requires
+  // human approval" describes the rule, not the decision that was actually made.
+  let reason = verdict.reason;
+
   if (verdict.decision === 'DENY') {
     throw new AgentGateError('agentgate_access_denied', 403, verdict.reason, {
       decision: 'DENY',
@@ -565,6 +570,7 @@ async function execute(
       }
 
       attempt.matchedPolicy = 'approval-grant';
+      reason = `approval ${request.approvalId} consumed`;
     } else {
       const { approvalId } = await deps.approvals.createPending({
         ...binding,
@@ -631,7 +637,7 @@ async function execute(
     body: response.body,
     requestId: attempt.requestId,
     decision: 'ALLOW',
-    reason: verdict.reason,
+    reason,
   };
 }
 
