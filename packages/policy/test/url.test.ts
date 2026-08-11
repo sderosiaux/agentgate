@@ -144,6 +144,17 @@ describe('normalizeUrl', () => {
   test('rejects a backslash wherever it sits', () => {
     expectRejected('https://api.github.com/repos/acme\\payments');
     expectRejected('https://api.github.com/repos/acme/payments\\');
+    // A literal backslash is not in the query charset of RFC 3986 either: the spelling a
+    // client is supposed to send is the encoded one, and that one is accepted below.
+    expectRejected('https://api.github.com/search/issues?q=foo\\bar');
+  });
+
+  test('accepts an encoded backslash in the query, which is the legitimate spelling', () => {
+    // The query never reaches the decoded check — it is cut off before it — so escaping a
+    // backslash the way RFC 3986 asks keeps working. Only the raw literal is refused.
+    expect(normalizeUrl('https://api.github.com/search/issues?q=foo%5Cbar').path).toBe(
+      '/search/issues',
+    );
   });
 
   test('rejects a decoded path carrying control characters', () => {
