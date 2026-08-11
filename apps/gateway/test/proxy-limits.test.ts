@@ -1,10 +1,15 @@
 import { afterEach, expect, test } from 'vitest';
+import { RESPONSE_SLACK_BYTES } from '../src/enforcement/limits.js';
+import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
 import { DEFAULT_LIMITS, startHarness, type Harness } from './helpers/gateway.js';
 
 let harness: Harness;
+let echo: EchoUpstream | undefined;
 
 afterEach(async () => {
   await harness.close();
+  await echo?.close();
+  echo = undefined;
 });
 
 const READ_PAYMENTS = {
@@ -142,6 +147,43 @@ test('a request body larger than what is left of the budget is refused before it
 
   expect(response.statusCode).toBe(429);
   expect(harness.upstreamRequests).toHaveLength(0);
+});
+
+test('a response the mission cannot afford is refused, and charged for what was read', async () => {
+  // An upstream is not something the gateway gets to trust about size either: without a cap it
+  // decides how much memory the gateway spends and how much text the secret scrub walks.
+  echo = await startEchoUpstream();
+  harness = await startHarness({
+    upstreamBaseUrl: echo.baseUrl,
+    limits: { ...DEFAULT_LIMITS, maxBytes: 1_000 },
+  });
+  const token = await harness.mint();
+  const oversized = RESPONSE_SLACK_BYTES + 8_192;
+
+  const response = await harness.proxy(
+    {
+      credential: harness.alias,
+      method: 'GET',
+      // The query picks the response size and never reaches policy, which matched the path.
+      url: `https://api.github.com/repos/acme/payments?bytes=${String(oversized)}`,
+    },
+    token,
+  );
+
+  expect(response.statusCode).toBe(502);
+  expect(response.json()).toMatchObject({ error: 'agentgate_upstream_error' });
+
+  const [row] = await harness.prisma.auditEvent.findMany({
+    where: { missionId: harness.missionId },
+  });
+  expect(row).toMatchObject({ decision: 'ERROR', httpStatus: 502 });
+
+  // Charged for what crossed the network before the gateway stopped reading, and no further.
+  const counter = await harness.prisma.usageCounter.findUniqueOrThrow({
+    where: { missionId: harness.missionId },
+  });
+  expect(Number(counter.bytesTotal)).toBeGreaterThan(0);
+  expect(Number(counter.bytesTotal)).toBeLessThanOrEqual(oversized);
 });
 
 test('ten requests racing for three slots hand out exactly three', async () => {

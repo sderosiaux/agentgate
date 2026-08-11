@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { MissionLimits } from '@agentgate/shared';
 import { afterAll, beforeEach, expect, test } from 'vitest';
 import { createPrismaClient, type PrismaClient } from '../src/db.js';
-import { bytesExceeded, consumeRequestSlot, recordBytes } from '../src/enforcement/limits.js';
+import {
+  bytesExceeded,
+  consumeRequestSlot,
+  recordBytes,
+  responseAllowance,
+  RESPONSE_SLACK_BYTES,
+} from '../src/enforcement/limits.js';
 
 const prisma: PrismaClient = createPrismaClient();
 
@@ -123,6 +129,22 @@ test('bytes already spent plus the pending request decide the byte budget', () =
   expect(bytesExceeded({ requestCount: 1, bytesTotal: 900 }, limits, 100)).toBe(false);
   expect(bytesExceeded({ requestCount: 1, bytesTotal: 900 }, limits, 101)).toBe(true);
   expect(bytesExceeded({ requestCount: 1, bytesTotal: 1_001 }, limits, 0)).toBe(true);
+});
+
+test('the response allowance is what the mission can still afford, plus enough to answer', () => {
+  const limits: MissionLimits = { ...GENEROUS, maxBytes: 10_000 };
+
+  expect(responseAllowance({ requestCount: 1, bytesTotal: 0 }, limits, 0)).toBe(
+    10_000 + RESPONSE_SLACK_BYTES,
+  );
+  expect(responseAllowance({ requestCount: 1, bytesTotal: 6_000 }, limits, 1_000)).toBe(
+    3_000 + RESPONSE_SLACK_BYTES,
+  );
+  // A spent budget still leaves the slack: the last request gets a whole answer rather than a
+  // truncated one, and `bytesExceeded` is what refuses the request after it.
+  expect(responseAllowance({ requestCount: 1, bytesTotal: 99_000 }, limits, 0)).toBe(
+    RESPONSE_SLACK_BYTES,
+  );
 });
 
 test('byte totals past the safe integer range are still comparable', async () => {

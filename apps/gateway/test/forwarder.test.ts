@@ -6,6 +6,7 @@ import {
   forward,
   upstreamTarget,
   type ForwardResult,
+  type UpstreamResponseTooLarge,
 } from '../src/enforcement/forwarder.js';
 import { applyInjection } from '../src/secrets/index.js';
 import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
@@ -44,6 +45,7 @@ function toEcho(overrides: Partial<Parameters<typeof forward>[0]> = {}): Promise
     body: undefined,
     injected,
     requestId: 'req_forwarder_test',
+    maxResponseBytes: 1024 * 1024,
     ...overrides,
   });
 }
@@ -195,6 +197,28 @@ test('the bytes charged to the mission are the bytes the upstream actually sent'
   expect(result.responseBytes).toBeGreaterThan(Buffer.byteLength(result.body, 'utf8'));
 });
 
+test('a response larger than the caller allows is refused instead of buffered', async () => {
+  const failure = await toEcho({
+    url: 'https://api.github.com/repos/acme/payments?bytes=20000',
+    maxResponseBytes: 4_096,
+  }).catch((error: unknown) => error);
+
+  expect(failure).toMatchObject({ code: 'agentgate_upstream_error', httpStatus: 502 });
+  // What was read before the gateway stopped reading, so the mission can be charged for it.
+  expect((failure as UpstreamResponseTooLarge).bytesRead).toBeGreaterThan(0);
+  expect((failure as Error).message).toMatch(/larger than/i);
+});
+
+test('a response inside the allowance comes back whole', async () => {
+  const result = await toEcho({
+    url: 'https://api.github.com/repos/acme/payments?bytes=4000',
+    maxResponseBytes: 8_192,
+  });
+
+  expect(result.status).toBe(200);
+  expect(result.responseBytes).toBe(4_000);
+});
+
 test('a body that is not text does not survive the forward, and that is the contract', async () => {
   // Characterisation, not an endorsement: `forward` decodes utf-8, so binary bytes come back
   // as U+FFFD. Nothing reachable produces them — a request only gets here once an adapter has
@@ -218,6 +242,7 @@ test('the injected credential is what makes the upstream answer', async () => {
     body: undefined,
     injected,
     requestId: 'req_forwarder_injection',
+    maxResponseBytes: 1024 * 1024,
   });
 
   expect(result.status).toBe(200);
@@ -234,6 +259,7 @@ test('a wrong credential comes back as the upstream 401, not as a gateway failur
     body: undefined,
     injected: applyInjection(INJECTION, 'not-the-upstream-token'),
     requestId: 'req_forwarder_wrong_token',
+    maxResponseBytes: 1024 * 1024,
   });
 
   expect(result.status).toBe(401);
@@ -249,6 +275,7 @@ test('an upstream 404 passes through with its body', async () => {
     body: undefined,
     injected,
     requestId: 'req_forwarder_404',
+    maxResponseBytes: 1024 * 1024,
   });
 
   expect(result.status).toBe(404);
@@ -265,6 +292,7 @@ test('an unreachable upstream is a 502 that names no address', async () => {
     body: undefined,
     injected,
     requestId: 'req_forwarder_unreachable',
+    maxResponseBytes: 1024 * 1024,
   }).catch((error: unknown) => error);
 
   expect(failure).toMatchObject({ code: 'agentgate_upstream_error', httpStatus: 502 });

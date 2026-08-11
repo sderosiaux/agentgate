@@ -36,6 +36,17 @@ export async function startEchoUpstream(): Promise<EchoUpstream> {
     return { echoed: true };
   });
 
+  // A response of any size on demand: `?bytes=N` on any path. The query travels through the
+  // gateway untouched, so policy still matches the query-less path while the test picks the
+  // size — which is also how the response-size cap gets exercised end to end.
+  app.addHook('preHandler', async (request, reply) => {
+    const wanted = Number((request.query as { bytes?: string }).bytes ?? '');
+
+    if (Number.isInteger(wanted) && wanted > 0) {
+      return reply.type('application/json').send(`"${'x'.repeat(wanted - 2)}"`);
+    }
+  });
+
   // Bytes that are not text: a PNG header, which no utf-8 decoder can carry through.
   app.all('/binary', async (_request, reply) =>
     reply.type('image/png').send(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),

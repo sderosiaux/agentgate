@@ -23,8 +23,8 @@ import type { AuditDecision, AuditRecorder } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
 import type { SecretStore } from '../secrets/index.js';
 import { applyInjection } from '../secrets/index.js';
-import { forward } from './forwarder.js';
-import { bytesExceeded, consumeRequestSlot, recordBytes } from './limits.js';
+import { forward, UpstreamResponseTooLarge } from './forwarder.js';
+import { bytesExceeded, consumeRequestSlot, recordBytes, responseAllowance } from './limits.js';
 
 /**
  * Pinned to the shared `HttpMethod`: mission network rules are written with these spellings, so
@@ -518,17 +518,31 @@ async function execute(
     );
   }
 
-  const response = await forward({
-    method: request.method,
-    url: request.url,
-    upstreamBaseUrl: resolved.upstreamBaseUrl,
-    headers: request.headers,
-    body: request.body,
-    injected: applyInjection(resolved.injection, resolved.value),
-    requestId: attempt.requestId,
-  });
+  const requestBytes = attempt.bodySize ?? 0;
 
-  await recordBytes(deps.prisma, mission.id, (attempt.bodySize ?? 0) + response.responseBytes);
+  let response;
+  try {
+    response = await forward({
+      method: request.method,
+      url: request.url,
+      upstreamBaseUrl: resolved.upstreamBaseUrl,
+      headers: request.headers,
+      body: request.body,
+      injected: applyInjection(resolved.injection, resolved.value),
+      requestId: attempt.requestId,
+      maxResponseBytes: responseAllowance(slot.usage, documents.limits, requestBytes),
+    });
+  } catch (error) {
+    // The bytes crossed the network before the gateway stopped reading, so the mission pays for
+    // them. A request that fails halfway through is not a free one.
+    if (error instanceof UpstreamResponseTooLarge) {
+      await recordBytes(deps.prisma, mission.id, requestBytes + error.bytesRead);
+    }
+
+    throw error;
+  }
+
+  await recordBytes(deps.prisma, mission.id, requestBytes + response.responseBytes);
 
   return {
     status: response.status,

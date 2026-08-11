@@ -124,3 +124,26 @@ export function bytesExceeded(
 ): boolean {
   return usage.bytesTotal + pendingBytes > limits.maxBytes;
 }
+
+/**
+ * Enough slack for any response a REST API returns, so that a mission with almost nothing left
+ * still gets a whole answer to its last request rather than a truncated one. It only ever
+ * matters at the very end of a budget: everywhere else the remaining budget is the larger number.
+ */
+export const RESPONSE_SLACK_BYTES = 256 * 1024;
+
+/**
+ * How much response the gateway is willing to hold in memory for this request.
+ *
+ * The mission's own budget is the bound, which is the honest one: reading further buys nothing,
+ * since those bytes would be charged to a mission that cannot pay for them. Without it an
+ * upstream — compromised, misconfigured, or merely generous — decides how much memory the
+ * gateway spends, and how much text every registered secret is then scanned across.
+ */
+export function responseAllowance(
+  usage: UsageSnapshot,
+  limits: MissionLimits,
+  pendingBytes: number,
+): number {
+  return Math.max(0, limits.maxBytes - usage.bytesTotal - pendingBytes) + RESPONSE_SLACK_BYTES;
+}

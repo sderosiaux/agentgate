@@ -56,6 +56,12 @@ export interface ForwardRequest {
   /** Gateway-minted, echoed to the agent and stored on the audit row. */
   requestId: string;
   timeoutMs?: number;
+  /**
+   * How many bytes of response the caller is willing to hold in memory. The pipeline derives it
+   * from what is left of the mission's byte budget: reading past that buys nothing, since the
+   * mission cannot afford to be charged for it.
+   */
+  maxResponseBytes: number;
 }
 
 export interface ForwardResult {
@@ -63,6 +69,63 @@ export interface ForwardResult {
   headers: Record<string, string>;
   body: string;
   responseBytes: number;
+}
+
+/**
+ * The upstream sent more than the mission could afford to receive.
+ *
+ * Carries what was read before the gateway stopped reading, because those bytes crossed the
+ * network and the mission is charged for them — a request that fails halfway is not a free one.
+ *
+ * A 502 rather than a 429: the request was allowed and has already reached the upstream, side
+ * effects and all. Telling the agent to retry later would invite it to do that again.
+ */
+export class UpstreamResponseTooLarge extends AgentGateError {
+  constructor(readonly bytesRead: number) {
+    super('agentgate_upstream_error', 502, 'upstream response is larger than the mission allows', {
+      details: { bytesRead },
+    });
+    this.name = 'UpstreamResponseTooLarge';
+  }
+}
+
+/**
+ * Reads the response, and stops reading the moment it grows past what the caller allowed.
+ *
+ * `response.arrayBuffer()` would buffer whatever the upstream feels like sending before anyone
+ * could object, and every registered secret is then scanned across all of it. Streaming with a
+ * running total means an upstream — compromised, misconfigured, or merely generous — cannot
+ * make the gateway hold more than the mission has budget for.
+ */
+async function readCapped(response: Response, maxBytes: number): Promise<Buffer> {
+  const reader = response.body?.getReader();
+
+  // 204, 304 and friends: no stream to read at all.
+  if (reader === undefined) {
+    return Buffer.alloc(0);
+  }
+
+  const chunks: Buffer[] = [];
+  let read = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    read += value.byteLength;
+    if (read > maxBytes) {
+      // Nothing further is pulled from the socket, and the partial body is dropped: a truncated
+      // json document is worse to hand an agent than an honest failure.
+      await reader.cancel();
+      throw new UpstreamResponseTooLarge(read);
+    }
+
+    chunks.push(Buffer.from(value));
+  }
+
+  return Buffer.concat(chunks);
 }
 
 /**
@@ -185,8 +248,12 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
 
   let payload: Buffer;
   try {
-    payload = Buffer.from(await response.arrayBuffer());
+    payload = await readCapped(response, request.maxResponseBytes);
   } catch (error) {
+    if (error instanceof UpstreamResponseTooLarge) {
+      throw error;
+    }
+
     throw new AgentGateError('agentgate_upstream_error', 502, 'upstream response was cut short', {
       cause: error,
     });
