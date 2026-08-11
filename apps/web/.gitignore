@@ -4,3 +4,6 @@ next-env.d.ts
 
 # Incremental typecheck state.
 tsconfig.tsbuildinfo
+
+# The client-bundle test builds here, so it never disturbs a dev server.
+.next-canary/

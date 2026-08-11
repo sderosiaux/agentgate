@@ -20,8 +20,14 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 const CANARY = 'canary-admin-token-9f3a2b7c4d1e-DEV-ONLY';
 
+/**
+ * Its own build directory, never the shared `.next`: this file builds on every run, and doing
+ * that in place ripped the output out from under any dev server running beside it.
+ */
+const DIST = '.next-canary';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
-const staticDir = join(root, '.next', 'static');
+const staticDir = join(root, DIST, 'static');
 
 /** Everything below has to be about the build this file just ran, not one left lying around. */
 const startedAt = Date.now();
@@ -43,6 +49,7 @@ beforeAll(() => {
       // Nothing is fetched during the build — every route is server-rendered on demand — but a
       // real address here would be a real request if that ever changed.
       GATEWAY_URL: 'http://127.0.0.1:9',
+      NEXT_DIST_DIR: DIST,
       NODE_ENV: 'production',
     },
     stdio: 'pipe',
@@ -55,7 +62,7 @@ describe('the client bundle', () => {
     expect(filesUnder(staticDir).filter((file) => file.endsWith('.js')).length).toBeGreaterThan(0);
     // Otherwise the two assertions below could pass against a stale directory built with some
     // other token, which would make this whole file decorative.
-    expect(statSync(join(root, '.next', 'BUILD_ID')).mtimeMs).toBeGreaterThanOrEqual(startedAt);
+    expect(statSync(join(root, DIST, 'BUILD_ID')).mtimeMs).toBeGreaterThanOrEqual(startedAt);
   });
 
   it('carries no trace of the admin token', () => {

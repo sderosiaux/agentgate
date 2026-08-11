@@ -1,6 +1,10 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
+  // Overridable so the client-bundle test can build into its own directory. It builds on every
+  // run, and writing into the shared `.next` tore the output out from under any dev server
+  // running beside it.
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   // The console is shipped as a container that runs `node server.js` with no node_modules
   // beside it (see Dockerfile). Standalone output is what makes that possible.
   output: 'standalone',
@@ -15,8 +19,9 @@ const config: NextConfig = {
   // Only `standalone`, not `.next` as a whole: the rest of it holds `webpack-runtime.js` and the
   // server chunks that require it, and excluding those produces a standalone server that starts
   // and then 500s on every page.
+  // The glob covers `.next-canary` too, which the client-bundle test builds into.
   outputFileTracingExcludes: {
-    '*': ['**/.next/standalone/**'],
+    '*': ['**/.next*/standalone/**'],
   },
   reactStrictMode: true,
   poweredByHeader: false,
