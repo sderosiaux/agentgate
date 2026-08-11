@@ -35,12 +35,12 @@ db-reset: require-env ## Drop and rebuild both databases from scratch, and re-se
 	@# is the right answer when the database lives in a container and no answer at all when it
 	@# does not — and either way a demo database that has been reviewed against carries the
 	@# residue: expired missions, one-off credentials, audit rows from somebody's test.
+	@# `migrate reset` drops, re-applies every migration and runs the seed from prisma.config.ts,
+	@# which is what puts `github_work` and its encrypted secret back.
 	@set -a && . ./.env && set +a && DATABASE_URL="$$DATABASE_URL_TEST" \
-		pnpm --filter @agentgate/gateway exec prisma migrate reset --force --skip-seed
+		pnpm --filter @agentgate/gateway exec prisma migrate reset --force
 	@set -a && . ./.env && set +a && DATABASE_URL="$$DATABASE_URL_DEMO" \
-		pnpm --filter @agentgate/gateway exec prisma migrate reset --force --skip-seed
-	@set -a && . ./.env && set +a && DATABASE_URL="$$DATABASE_URL_DEMO" \
-		pnpm --filter @agentgate/gateway exec prisma db seed
+		pnpm --filter @agentgate/gateway exec prisma migrate reset --force
 
 test: require-env dev-db db-migrate ## Run every workspace test suite, leak scan included
 	@# The leak scan is one of these suites (tests/security), not a step after them: a check that

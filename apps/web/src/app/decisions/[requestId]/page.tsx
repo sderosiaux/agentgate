@@ -227,7 +227,14 @@ export default async function DecisionPage({
             <Field label="Method" mono>
               {record.method ?? '—'}
             </Field>
-            <Field label="Upstream status" mono>
+            {/*
+              The status the *gateway* answered with, which is only the upstream's own status on
+              an ALLOW. Every other outcome is refused before anything is forwarded, so a DENY
+              here reads 403 and a REQUIRE_APPROVAL reads 202 — neither of which any upstream
+              ever sent. Labelling those "upstream status" invents a third party that was never
+              contacted, on the one screen whose whole job is to say what actually happened.
+            */}
+            <Field label="Answered" mono>
               {record.httpStatus ?? '—'}
             </Field>
 
