@@ -23,13 +23,21 @@ const NEXT_MINUTE = new Date('2026-08-11T10:21:00.001Z');
 
 let missionId: string;
 
+/** Every id this file minted, so the counter rows it created can be dropped at the end. */
+const missionIds: string[] = [];
+
 beforeEach(() => {
   // Counters are keyed by mission and never reset, so every test gets its own mission id
   // rather than trying to clean up after the previous one.
   missionId = `mis_${randomUUID()}`;
+  missionIds.push(missionId);
 });
 
 afterAll(async () => {
+  // Nothing else ever deletes these: without this, a suite run leaves a dozen counter rows
+  // behind for missions that never existed anywhere else.
+  await prisma.rateWindow.deleteMany({ where: { missionId: { in: missionIds } } });
+  await prisma.usageCounter.deleteMany({ where: { missionId: { in: missionIds } } });
   await prisma.$disconnect();
 });
 
