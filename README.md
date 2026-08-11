@@ -256,7 +256,7 @@ The OpenAPI 3.1 document is generated from the same zod schemas the routes valid
 - browsable UI: <http://localhost:8080/api/docs>
 - document: <http://localhost:8080/api/docs/json>
 
-Those two addresses assume the compose stack, where the gateway is published on `GATEWAY_PORT` and stays up. A `make demo-host` run is different: its gateway binds `DEMO_GATEWAY_PORT` (8099 by default), and the orchestrator kills it when the last case finishes, so there is nothing on either URL by the time you go looking. To browse the document without Docker, start a gateway yourself after `make db-migrate` and leave it running: `DATABASE_URL=$DATABASE_URL_DEMO PORT=8080 node apps/gateway/dist/index.js`.
+Those two addresses assume the compose stack, where the gateway is published on `GATEWAY_PORT` and stays up. A `make demo-host` run is different: its gateway binds `DEMO_GATEWAY_PORT` (8099 by default), and the orchestrator kills it when the last case finishes, so there is nothing on either URL by the time you go looking. To browse the document without Docker, start a gateway yourself after `make db-migrate` and leave it running: `set -a && . ./.env && set +a && DATABASE_URL=$DATABASE_URL_DEMO PORT=8080 node apps/gateway/dist/index.js`. The gateway reads no `.env` of its own, which is why the line loads it first — without that prefix it refuses to start, correctly, for want of a master key.
 
 Both are served without the admin token, deliberately, and the trade-off is written up in the threat model. Errors are machine-readable:
 
