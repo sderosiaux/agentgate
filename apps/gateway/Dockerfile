@@ -8,12 +8,18 @@ WORKDIR /app
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/gateway/package.json apps/gateway/
+# Every workspace project must be present or the frozen lockfile no longer matches.
+COPY packages/auth/package.json packages/auth/
+COPY packages/shared/package.json packages/shared/
 # --ignore-scripts: the gateway postinstall runs `prisma generate`, which needs the
-# schema this layer does not have yet. Generation happens explicitly below.
+# schema this layer does not have yet, and the package `prepare` scripts compile
+# sources this layer does not have either. Both happen explicitly below.
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY apps/gateway apps/gateway
+COPY packages packages
+# `@agentgate/gateway...` builds the gateway and its workspace dependencies, in order.
 RUN pnpm --filter @agentgate/gateway exec prisma generate \
-    && pnpm --filter @agentgate/gateway build
+    && pnpm --filter "@agentgate/gateway..." build
 
 FROM base AS runtime
 ENV NODE_ENV=production
