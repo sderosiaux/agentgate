@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    The console's tab icon. Next's App Router picks this file up by name and emits the
+    <link rel="icon"> itself, which is also what stops browsers falling back to /favicon.ico:
+    there is no public/ directory here, and a request for that path 404s.
+
+    The comment sits inside the root element rather than above it on purpose. Next reads this
+    file with an image-size probe that looks for the svg tag at the start of the bytes, and a
+    leading comment fails the build with "not a valid image file".
+
+    Same mark as the sidebar (apps/web/src/components/Sidebar.tsx), inverted. That one is an
+    outlined square holding a small dot, which is legible at 28px and mud at 16. Filling the
+    square and cutting the dot out of it keeps the shape recognisable at a tab's size.
+
+    The fill is the accent token from globals.css, oklch(0.485 0.145 264), as its sRGB hex. A
+    favicon is decoded by the browser's image pipeline rather than the page's style engine, so
+    no CSS variable reaches here; this is the one place that value is duplicated.
+  -->
+  <rect width="32" height="32" rx="7" fill="#3359b0" />
+  <circle cx="16" cy="16" r="4.75" fill="#ffffff" />
+</svg>
