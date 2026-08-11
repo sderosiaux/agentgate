@@ -50,6 +50,10 @@
   --color-fault-soft: oklch(0.965 0.004 265);
   --color-fault-line: oklch(0.87 0.006 265);
 
+  /* Behind a confirmation dialog. Ink rather than black, at the weight that dims the page
+   * without hiding what the dialog is asking you to confirm. */
+  --color-scrim: oklch(0.245 0.012 265 / 22%);
+
   --radius-card: 0.625rem;
 
   --ease-console: cubic-bezier(0.32, 0.08, 0.24, 1);

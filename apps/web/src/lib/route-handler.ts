@@ -7,8 +7,12 @@ import { GatewayError } from './api';
  * The shape every interactive control in this console goes through.
  *
  * Buttons live in client components, and the admin token may not: so a button posts to a route
- * handler here, which is server code, which calls the management API. The browser learns the
- * outcome and nothing else — not the token, not the gateway's address.
+ * handler here, which is server code, which calls the management API. What crosses back to the
+ * browser is the outcome, never the credential that obtained it.
+ *
+ * The gateway's address is a different matter and is not treated as a secret — the rail prints
+ * its host, because an operator looking at a console needs to know which gateway they are
+ * looking at. Knowing the address buys nothing without the token.
  */
 export async function runAction<T>(work: () => Promise<T>): Promise<NextResponse> {
   try {

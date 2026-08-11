@@ -113,7 +113,17 @@ export default async function AgentPage({
               </Link>
             </Field>
             <Field label="Registered">{absoluteTime(agent.createdAt)}</Field>
+            <Field label="Sessions">
+              <span className="text-ink-faint">not reported</span>
+            </Field>
           </dl>
+          <p className="border-line text-ink-faint border-t px-5 py-3 text-xs leading-relaxed">
+            A session is minted with every agent token and travels in its{' '}
+            <code className="ident">session_id</code> claim, but the management API exposes no
+            session data today — not on this endpoint and not on one of its own. So this console has
+            nothing to count, and says so rather than showing a zero that would read as &ldquo;this
+            agent has never run&rdquo;.
+          </p>
         </Panel>
 
         <Panel title="Decisions to date">
