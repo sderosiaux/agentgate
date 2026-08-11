@@ -48,3 +48,26 @@ test('an audit event cannot be deleted', async () => {
 
   expect(await prisma.auditEvent.findUnique({ where: { id } })).not.toBeNull();
 });
+
+test('the audit table cannot be truncated', async () => {
+  const id = await insertAuditEvent();
+
+  await expect(prisma.$executeRawUnsafe('TRUNCATE TABLE "AuditEvent"')).rejects.toThrow(
+    /append-only/i,
+  );
+
+  expect(await prisma.auditEvent.findUnique({ where: { id } })).not.toBeNull();
+});
+
+test('the replica session role does not disable the guard', async () => {
+  const id = await insertAuditEvent();
+
+  await expect(
+    prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRaw`DELETE FROM "AuditEvent" WHERE "id" = ${id}`;
+    }),
+  ).rejects.toThrow(/append-only/i);
+
+  expect(await prisma.auditEvent.findUnique({ where: { id } })).not.toBeNull();
+});
