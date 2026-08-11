@@ -66,6 +66,30 @@ test('network rules keep path and methods optional but reject unknown keys', () 
   ).toThrow();
 });
 
+test('network rules only accept uppercase http verbs', () => {
+  expect(() =>
+    NetworkRulesSchema.parse({
+      allow: [{ host: 'api.github.com', methods: ['get'] }],
+      deny: [],
+    }),
+  ).toThrow();
+  expect(() =>
+    NetworkRulesSchema.parse({
+      allow: [{ host: 'api.github.com', methods: ['FETCH'] }],
+      deny: [],
+    }),
+  ).toThrow();
+  expect(
+    NetworkRulesSchema.parse({
+      allow: [{ host: 'api.github.com', methods: ['GET', 'HEAD', 'OPTIONS'] }],
+      deny: [{ host: 'api.github.com', methods: ['PUT', 'PATCH', 'DELETE'] }],
+    }),
+  ).toEqual({
+    allow: [{ host: 'api.github.com', methods: ['GET', 'HEAD', 'OPTIONS'] }],
+    deny: [{ host: 'api.github.com', methods: ['PUT', 'PATCH', 'DELETE'] }],
+  });
+});
+
 test('network rules require both lists to be arrays', () => {
   expect(() => NetworkRulesSchema.parse({ allow: {}, deny: [] })).toThrow();
   expect(() => NetworkRulesSchema.parse({ allow: [] })).toThrow();

@@ -10,10 +10,15 @@ export const MissionPermissionsSchema = z.strictObject({
   deniedActions: z.array(z.string()),
 });
 
+// Methods are stored and compared uppercase, the casing HTTP itself uses on the wire, so
+// the gateway can match `request.method` directly. A typo is rejected here rather than
+// silently widening or narrowing a mission's network scope.
+const HttpMethodSchema = z.enum(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
 const NetworkRuleSchema = z.strictObject({
   host: z.string().min(1),
   path: z.string().optional(),
-  methods: z.array(z.string()).optional(),
+  methods: z.array(HttpMethodSchema).optional(),
 });
 
 export const NetworkRulesSchema = z.strictObject({
@@ -29,6 +34,7 @@ export const MissionLimitsSchema = z.strictObject({
   requestsPerMinute: positiveInt,
 });
 
+export type HttpMethod = z.infer<typeof HttpMethodSchema>;
 export type MissionPermissions = z.infer<typeof MissionPermissionsSchema>;
 export type NetworkRules = z.infer<typeof NetworkRulesSchema>;
 export type MissionLimits = z.infer<typeof MissionLimitsSchema>;

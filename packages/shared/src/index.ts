@@ -10,6 +10,7 @@ export {
   MissionLimitsSchema,
   MissionPermissionsSchema,
   NetworkRulesSchema,
+  type HttpMethod,
   type MissionLimits,
   type MissionPermissions,
   type NetworkRules,
