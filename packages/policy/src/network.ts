@@ -8,9 +8,17 @@ export interface NetworkRequest {
   method: string;
 }
 
-export type NetworkMatch = { matched: 'deny' } | { matched: 'allow' } | { matched: 'none' };
+export type NetworkRule = NetworkRules['allow'][number];
 
-type NetworkRule = NetworkRules['allow'][number];
+/**
+ * The matched rule travels with the outcome so an audit row can say *which* rule decided,
+ * not merely that something did. `matched` stays the discriminant; `rule` is only present on
+ * an outcome that actually had one.
+ */
+export type NetworkMatch =
+  | { matched: 'deny'; rule: NetworkRule }
+  | { matched: 'allow'; rule: NetworkRule }
+  | { matched: 'none' };
 
 /** `*` matches any host, `*.suffix` matches any strict subdomain of `suffix`, else exact. */
 function hostMatches(pattern: string, host: string): boolean {
@@ -84,11 +92,13 @@ function ruleMatches(rule: NetworkRule, request: NetworkRequest): boolean {
  * explicit deny. `none` is not "allowed" — the caller turns it into a default deny (D3 step 5).
  */
 export function matchNetworkRules(rules: NetworkRules, request: NetworkRequest): NetworkMatch {
-  if (rules.deny.some((rule) => ruleMatches(rule, request))) {
-    return { matched: 'deny' };
+  const denied = rules.deny.find((rule) => ruleMatches(rule, request));
+  if (denied !== undefined) {
+    return { matched: 'deny', rule: denied };
   }
-  if (rules.allow.some((rule) => ruleMatches(rule, request))) {
-    return { matched: 'allow' };
+  const allowed = rules.allow.find((rule) => ruleMatches(rule, request));
+  if (allowed !== undefined) {
+    return { matched: 'allow', rule: allowed };
   }
   return { matched: 'none' };
 }

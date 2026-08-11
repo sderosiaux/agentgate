@@ -141,11 +141,15 @@ describe('matchNetworkRules', () => {
   });
 
   test('a deny rule is not walked around by dots in the host', () => {
-    const rules: NetworkRules = { allow: [{ host: '*' }], deny: [{ host: 'internal.acme.com' }] };
+    const denyRule = { host: 'internal.acme.com' };
+    const rules: NetworkRules = { allow: [{ host: '*' }], deny: [denyRule] };
 
     // The one valid alternative spelling normalizes onto the deny rule...
     const { host, path } = normalizeUrl('https://internal.acme.com./secret');
-    expect(matchNetworkRules(rules, { host, path, method: 'GET' })).toEqual({ matched: 'deny' });
+    expect(matchNetworkRules(rules, { host, path, method: 'GET' })).toEqual({
+      matched: 'deny',
+      rule: denyRule,
+    });
 
     // ...and the invalid ones never get as far as being matched at all.
     for (const raw of [
@@ -155,6 +159,47 @@ describe('matchNetworkRules', () => {
     ]) {
       expect(() => normalizeUrl(raw), raw).toThrowError();
     }
+  });
+
+  test('the matched rule comes back, so an audit row can name what decided', () => {
+    const denyRule = {
+      host: 'api.github.com',
+      path: '/repos/acme/payments/**',
+      methods: ['DELETE' as const],
+    };
+    const allowRule = { host: '*.github.com' };
+    const rules: NetworkRules = { allow: [allowRule], deny: [denyRule] };
+
+    expect(
+      matchNetworkRules(rules, {
+        host: 'api.github.com',
+        path: '/repos/acme/payments',
+        method: 'DELETE',
+      }),
+    ).toEqual({ matched: 'deny', rule: denyRule });
+
+    expect(
+      matchNetworkRules(rules, { host: 'api.github.com', path: '/repos/acme', method: 'GET' }),
+    ).toEqual({ matched: 'allow', rule: allowRule });
+  });
+
+  test('the rule reported is the one that matched, not the first in the list', () => {
+    const wanted = { host: 'api.github.com', path: '/repos/**' };
+    const rules: NetworkRules = { allow: [{ host: 'other.test' }, wanted], deny: [] };
+
+    const match = matchNetworkRules(rules, {
+      host: 'api.github.com',
+      path: '/repos/acme',
+      method: 'GET',
+    });
+
+    expect(match).toEqual({ matched: 'allow', rule: wanted });
+  });
+
+  test('no match carries no rule', () => {
+    expect(matchNetworkRules(EMPTY, { host: 'a.test', path: '/x', method: 'GET' })).toEqual({
+      matched: 'none',
+    });
   });
 
   test('any matching rule in a list is enough', () => {
