@@ -588,13 +588,23 @@ try {
     console.log('3. the management API');
     const gatewayPort = await freePort();
     const adminToken = process.env['ADMIN_TOKEN'];
-    const databaseUrl = process.env['DATABASE_URL_TEST'];
+    /**
+     * The database the swept gateway reads, which has to be the one the demo just wrote to or
+     * this stage rakes an empty schema and reports it as clean.
+     *
+     * `DATABASE_URL_TEST` is right by default, because the default is a host-mode demo and that
+     * is where it writes. A compose demo writes to `DATABASE_URL` instead, and nothing here can
+     * work that out on its own — the transcript may have come from either. So it is a variable,
+     * and CI sets it in the job where the demo ran in containers.
+     */
+    const databaseUrl =
+      process.env['LEAK_SCAN_DATABASE_URL'] ?? process.env['DATABASE_URL_TEST'] ?? '';
 
-    if (typeof databaseUrl !== 'string' || databaseUrl === '') {
+    if (databaseUrl === '') {
       skip(
         'the management API and the console',
-        'DATABASE_URL_TEST is unset, so no gateway can be started',
-        'set it in .env (see .env.example)',
+        'neither LEAK_SCAN_DATABASE_URL nor DATABASE_URL_TEST is set, so no gateway can be started',
+        'set DATABASE_URL_TEST in .env (see .env.example)',
       );
     } else {
       const gateway = await startService(
@@ -653,16 +663,23 @@ try {
 /**
  * The verdict, on disk as well as on the terminal.
  *
- * Written because of a real loss: a run of this script reported five occurrences, and the
- * locations went to stderr through a `| head` that cut them off. The evidence for the one
- * finding this check exists to produce was destroyed by the shell that ran it, and eight
- * later runs came back clean, so there is nothing left to look at.
+ * Written because of a real loss: a run of this script reported five occurrences and the
+ * locations went to stderr through a `| head` that cut them off. Terminals truncate, CI
+ * collapses log groups, and a pipeline eats stderr. A file does none of those. The needle
+ * values are still redacted out of it: this records where something was found, never what.
  *
- * Terminals truncate, CI collapses log groups, and a pipeline eats stderr. A file does none of
- * those. The needle values are still redacted out of it — this is a record of where something
- * was found, never of what it was.
+ * `--transcript-only` writes nothing, and that is the point of this function having a guard at
+ * all. That mode reads one file and skips the databases, the API, the console and the
+ * containers, so its verdict is not a verdict about the system. The suite uses it to plant a
+ * secret and require a failure — and a partial scan that wrote its own failure here would leave
+ * every green build with a report saying FAILED, which CI would then upload as a finding. The
+ * test for the alarm must not be able to trip the alarm.
  */
 function writeReport(lines) {
+  if (transcriptOnly) {
+    return null;
+  }
+
   try {
     mkdirSync(ARTIFACTS, { recursive: true });
     writeFileSync(REPORT, `${lines.join('\n')}\n`, { mode: 0o600 });

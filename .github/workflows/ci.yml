@@ -192,10 +192,19 @@ jobs:
         run: make db-migrate
 
       - name: Leak scan, over the compose run this time
-        # Same scan the suite runs, with two differences that matter: the transcript it reads is
-        # the *container* demo rather than a host one, and a daemon exists, so the
-        # `docker compose logs` stage executes instead of skipping loudly. The console stage
-        # still skips here — the console is in a container, not a local build.
+        # LEAK_SCAN_DATABASE_URL is the whole point of this step. The scan starts its own gateway
+        # to sweep the management API, and by default that gateway reads DATABASE_URL_TEST —
+        # correct for a host-mode demo, wrong here, where the demo ran in containers against the
+        # compose database. Without this the sweep rakes an empty schema and calls it clean.
+        #
+        # What this run covers that the suites job does not: the transcript is the *container*
+        # demo, and a daemon exists, so `docker compose logs` is read instead of skipped.
+        #
+        # What it still does not cover, stated rather than implied: the console stage skips,
+        # because the console here is a container and the stage looks for a local Next build.
+        # The compose console's own output is inside `docker compose logs`, which is scanned.
+        env:
+          LEAK_SCAN_DATABASE_URL: postgresql://agentgate:agentgate@localhost:5432/agentgate
         run: node scripts/leak-scan.mjs --transcript artifacts/demo-output.txt
 
       - name: Keep the leak scan's verdict

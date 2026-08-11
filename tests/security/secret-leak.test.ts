@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
@@ -70,4 +70,15 @@ test('a planted secret is caught, so a clean result means something', async () =
   // And the report itself does not repeat the secret it is reporting: a leak scanner that
   // prints the value into a CI log everyone can read has leaked it on everyone's behalf.
   expect(run.output).not.toContain('super-secret-github-token');
+});
+
+test("the self-test does not overwrite the real run's verdict", () => {
+  // Runs last, and reads the file the first test left behind. The test above deliberately
+  // fails a scan, and a partial scan that writes its own failure into the run's verdict file
+  // leaves every green build shipping a report that says FAILED — which CI then uploads as
+  // though the suite had found something. The alarm test must not be able to trip the alarm.
+  const report = readFileSync(path.join(ROOT, 'artifacts/leak-report.txt'), 'utf8');
+
+  expect(report).toContain('clean');
+  expect(report).not.toContain('FAILED');
 });
