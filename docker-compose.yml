@@ -30,3 +30,29 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    # On agent-net so the demo agent can reach it, on service-net so it can reach
+    # the database and the upstream services the agent itself cannot see.
+    networks: [agent-net, service-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PORT: 8080
+    ports:
+      - '8080:8080'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:8080/healthz\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
