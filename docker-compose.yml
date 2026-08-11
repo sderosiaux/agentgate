@@ -5,7 +5,7 @@ networks:
   # reach the gateway, never the upstream services.
   agent-net:
     internal: true
-  # Service-side network: gateway, database and (later) mock-github, web, opa.
+  # Service-side network: gateway, database, mock-github and (later) web, opa.
   service-net:
 
 volumes:
@@ -57,3 +57,25 @@ services:
       timeout: 3s
       retries: 20
       start_period: 30s
+
+  mock-github:
+    build:
+      context: .
+      dockerfile: services/mock-github/Dockerfile
+    # service-net ONLY, and no published port: the demo agent sits on agent-net and
+    # must have no route here. Every call it makes has to go through the gateway,
+    # which holds the token this service demands.
+    networks: [service-net]
+    environment:
+      MOCK_GITHUB_TOKEN: ${MOCK_GITHUB_TOKEN:?set MOCK_GITHUB_TOKEN in .env}
+      PORT: 3001
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:3001/healthz\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
