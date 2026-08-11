@@ -3,3 +3,5 @@ dist/
 pnpm-lock.yaml
 apps/gateway/src/generated/
 apps/gateway/prisma/migrations/
+SPEC.md
+docs/

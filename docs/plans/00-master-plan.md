@@ -14,19 +14,19 @@
 
 ## Sub-plans and ordering
 
-| #   | Plan                                             | Produces                                                                                           | Depends on     |
-| --- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- | -------------- |
-| 01  | [Foundations](01-foundations.md)                 | Monorepo scaffold, compose, Prisma schema, seed, Makefile                                          | —              |
-| 02  | [Shared + Auth](02-shared-and-auth.md)           | `packages/shared` (types, errors, ids), `packages/auth` (Ed25519 tokens)                           | 01             |
-| 03  | [Mock GitHub](03-mock-github.md)                 | `services/mock-github` standalone Fastify service                                                  | 01             |
-| 04  | [Secret store](04-secrets.md)                    | `SecretStore` interface + AES-256-GCM DB impl                                                      | 01, 02         |
-| 05  | [Policy engine](05-policy.md)                    | `packages/policy`: URL normalization, network matching, GitHub adapter, builtin engine, OPA parity | 02             |
-| 06  | [Gateway enforcement](06-gateway-enforcement.md) | `/v1/proxy` full pipeline: limits, injection, forwarding, audit                                    | 02, 03, 04, 05 |
-| 07  | [Approvals](07-approvals.md)                     | Approval records, single-use grants, retry flow                                                    | 06             |
-| 08  | [Management API](08-management-api.md)           | CRUD + token minting + OpenAPI + admin auth                                                        | 06, 07         |
-| 09  | [SDK + Demo](09-sdk-and-demo.md)                 | `packages/sdk`, `apps/demo-agent`, network isolation, `make demo` (6 cases)                        | 08             |
-| 10  | [Web UI](10-web-ui.md)                           | Next.js: Overview, Agents, Missions, Policies, Credentials, Approvals, Audit, Decision view        | 08             |
-| 11  | [Hardening](11-hardening.md)                     | THREAT_MODEL.md, secret-leak test, README, final verification                                      | 09, 10         |
+| # | Plan | Produces | Depends on |
+|---|------|----------|-----------|
+| 01 | [Foundations](01-foundations.md) | Monorepo scaffold, compose, Prisma schema, seed, Makefile | — |
+| 02 | [Shared + Auth](02-shared-and-auth.md) | `packages/shared` (types, errors, ids), `packages/auth` (Ed25519 tokens) | 01 |
+| 03 | [Mock GitHub](03-mock-github.md) | `services/mock-github` standalone Fastify service | 01 |
+| 04 | [Secret store](04-secrets.md) | `SecretStore` interface + AES-256-GCM DB impl | 01, 02 |
+| 05 | [Policy engine](05-policy.md) | `packages/policy`: URL normalization, network matching, GitHub adapter, builtin engine, OPA parity | 02 |
+| 06 | [Gateway enforcement](06-gateway-enforcement.md) | `/v1/proxy` full pipeline: limits, injection, forwarding, audit | 02, 03, 04, 05 |
+| 07 | [Approvals](07-approvals.md) | Approval records, single-use grants, retry flow | 06 |
+| 08 | [Management API](08-management-api.md) | CRUD + token minting + OpenAPI + admin auth | 06, 07 |
+| 09 | [SDK + Demo](09-sdk-and-demo.md) | `packages/sdk`, `apps/demo-agent`, network isolation, `make demo` (6 cases) | 08 |
+| 10 | [Web UI](10-web-ui.md) | Next.js: Overview, Agents, Missions, Policies, Credentials, Approvals, Audit, Decision view | 08 |
+| 11 | [Hardening](11-hardening.md) | THREAT_MODEL.md, secret-leak test, README, final verification | 09, 10 |
 
 Dependency graph:
 

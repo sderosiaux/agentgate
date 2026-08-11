@@ -15,20 +15,13 @@
 ```typescript
 // crypto.ts — isolated, no Prisma import
 export function encryptSecret(masterKeyB64: string, plaintext: string): Buffer; // iv(12) || tag(16) || ciphertext
-export function decryptSecret(masterKeyB64: string, blob: Buffer): string; // throws on tamper/wrong key
-export function assertMasterKey(masterKeyB64: string | undefined): void; // throws unless base64 32 bytes
+export function decryptSecret(masterKeyB64: string, blob: Buffer): string;      // throws on tamper/wrong key
+export function assertMasterKey(masterKeyB64: string | undefined): void;        // throws unless base64 32 bytes
 
 // store.ts — the seam for future backends (Vault, ASM, GSM, 1Password). Only Db impl now.
-export interface InjectionSpec {
-  type: 'header';
-  name: string;
-  format: string;
-} // format contains "{value}"
+export interface InjectionSpec { type: "header"; name: string; format: string } // format contains "{value}"
 export interface ResolvedCredential {
-  alias: string;
-  provider: string;
-  logicalHost: string;
-  upstreamBaseUrl: string;
+  alias: string; provider: string; logicalHost: string; upstreamBaseUrl: string;
   injection: InjectionSpec;
   value: string; // NEVER logged, NEVER serialized — see toJSON guard below
 }

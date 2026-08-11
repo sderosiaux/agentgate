@@ -13,12 +13,10 @@
 
 ```typescript
 // shared/src/ids.ts — prefixed ids: pri_ agt_ mis_ cred_ apr_ aud_ req_ ses_
-export function newId(
-  prefix: 'pri' | 'agt' | 'mis' | 'cred' | 'apr' | 'aud' | 'req' | 'ses',
-): string; // `${prefix}_${crypto.randomUUID() sans dashes, 20 chars}`
+export function newId(prefix: "pri"|"agt"|"mis"|"cred"|"apr"|"aud"|"req"|"ses"): string; // `${prefix}_${crypto.randomUUID() sans dashes, 20 chars}`
 
 // shared/src/decision.ts
-export type Decision = 'ALLOW' | 'DENY' | 'REQUIRE_APPROVAL';
+export type Decision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 export interface PolicyDecision {
   decision: Decision;
   reason: string;
@@ -29,58 +27,43 @@ export interface PolicyDecision {
 export class AgentGateError extends Error {
   constructor(
     public code:
-      | 'agentgate_access_denied'
-      | 'agentgate_approval_required'
-      | 'agentgate_invalid_token'
-      | 'agentgate_mission_expired'
-      | 'agentgate_limit_exceeded'
-      | 'agentgate_unknown_credential'
-      | 'agentgate_unmapped_action'
-      | 'agentgate_upstream_error'
-      | 'agentgate_validation_error'
-      | 'agentgate_not_found',
+      | "agentgate_access_denied" | "agentgate_approval_required"
+      | "agentgate_invalid_token" | "agentgate_mission_expired"
+      | "agentgate_limit_exceeded" | "agentgate_unknown_credential"
+      | "agentgate_unmapped_action" | "agentgate_upstream_error"
+      | "agentgate_validation_error" | "agentgate_not_found",
     public httpStatus: number,
     message: string,
     public details?: Record<string, unknown>,
-  ) {
-    super(message);
-  }
+  ) { super(message); }
   toBody(requestId: string): object; // {error, decision?, reason, request_id}
 }
 
 // shared/src/mission.ts — zod schemas validating the Json columns
 export const MissionPermissionsSchema: z.ZodType<{
-  resources: string[]; // "github:acme/payments"
-  allowedActions: string[]; // "repo.read"
+  resources: string[];              // "github:acme/payments"
+  allowedActions: string[];         // "repo.read"
   approvalActions: string[];
   deniedActions: string[];
 }>;
 export const NetworkRulesSchema: z.ZodType<{
   allow: Array<{ host: string; path?: string; methods?: string[] }>;
-  deny: Array<{ host: string; path?: string; methods?: string[] }>;
+  deny:  Array<{ host: string; path?: string; methods?: string[] }>;
 }>;
 export const MissionLimitsSchema: z.ZodType<{
-  maxRequests: number;
-  maxBytes: number;
-  requestsPerMinute: number;
+  maxRequests: number; maxBytes: number; requestsPerMinute: number;
 }>;
 
 // auth/src/token.ts
 export interface AgentClaims {
-  agentId: string;
-  principalId: string;
-  agentType: string;
-  missionId: string;
-  sessionId: string;
+  agentId: string; principalId: string; agentType: string;
+  missionId: string; sessionId: string;
 }
 export interface TokenService {
   mint(claims: AgentClaims, expiresAt: Date): Promise<string>;
   verify(token: string): Promise<AgentClaims>; // throws AgentGateError("agentgate_invalid_token")
 }
-export function createTokenService(
-  privateKeyB64: string | undefined,
-  publicKeyB64: string,
-): TokenService;
+export function createTokenService(privateKeyB64: string | undefined, publicKeyB64: string): TokenService;
 // jose, alg EdDSA. mint requires private key; verify only needs public key.
 ```
 

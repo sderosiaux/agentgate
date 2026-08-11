@@ -18,15 +18,14 @@
 export interface PolicyInput {
   identity: { principalId: string; agentId: string; agentType: string };
   mission: {
-    id: string;
-    intent: string;
-    permissions: MissionPermissions; // from @agentgate/shared
+    id: string; intent: string;
+    permissions: MissionPermissions;   // from @agentgate/shared
     network: NetworkRules;
-    expiresAt: string; // ISO
+    expiresAt: string;                 // ISO
   };
-  resource: { provider: string; id: string }; // id: "acme/payments"
-  action: { type: string; method: string }; // "pull_request.create", "POST"
-  network: { host: string; path: string }; // normalized logical host/path
+  resource: { provider: string; id: string };          // id: "acme/payments"
+  action: { type: string; method: string };            // "pull_request.create", "POST"
+  network: { host: string; path: string };             // normalized logical host/path
   environment: { name: string };
   currentState: { requestCount: number; bytesTotal: number };
   data: { contentType?: string; bodySize?: number; bodyHash?: string };
@@ -36,23 +35,17 @@ export interface PolicyEngine {
 }
 
 // url.ts
-export interface NormalizedUrl {
-  host: string;
-  path: string;
-  protocol: 'http:' | 'https:';
-}
+export interface NormalizedUrl { host: string; path: string; protocol: "http:"|"https:" }
 export function normalizeUrl(raw: string): NormalizedUrl; // throws AgentGateError(validation) on: non-http(s), userinfo, path escaping root after ..-collapse; decodes %-encoding once; lowercases host; strips query/fragment
 
 // network.ts
-export function matchNetworkRules(
-  rules: NetworkRules,
-  req: { host: string; path: string; method: string },
-): { matched: 'deny' } | { matched: 'allow' } | { matched: 'none' };
+export function matchNetworkRules(rules: NetworkRules, req: {host: string; path: string; method: string}):
+  { matched: "deny" } | { matched: "allow" } | { matched: "none" };
 // host: exact or "*.suffix" or "*"; path: "*" one segment, "**" any depth, absent = any; deny checked first
 
 // adapters/types.ts
 export interface ProviderAdapter {
-  provider: string; // "github"
+  provider: string;                                     // "github"
   matchesHost(logicalHost: string): boolean;
   mapRequest(method: string, path: string): { resource: string; action: string } | null; // null = unmapped
 }
@@ -63,7 +56,7 @@ export function actionImplied(granted: string, requested: string): boolean;
 // repo.read ⊇ issue.read, pull_request.read; otherwise strict equality
 
 // engine.ts
-export function createBuiltinEngine(): PolicyEngine; // D3 steps 6–10 (steps 1–5 are gateway pipeline)
+export function createBuiltinEngine(): PolicyEngine;    // D3 steps 6–10 (steps 1–5 are gateway pipeline)
 // matchedPolicy values: "mission-denied-action" | "mission-approval-required" | "mission-allowed-action" | "mission-default-deny" | "mission-resource-scope"
 
 // opa.ts

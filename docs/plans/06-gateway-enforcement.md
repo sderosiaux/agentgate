@@ -17,12 +17,12 @@
 ```typescript
 // POST /v1/proxy  (agent-facing; auth: Authorization: Bearer <agent JWT>)
 interface ProxyRequestBody {
-  credential: string; // alias, e.g. "github_work"
+  credential: string;               // alias, e.g. "github_work"
   method: string;
-  url: string; // logical URL: https://api.github.com/...
+  url: string;                      // logical URL: https://api.github.com/...
   headers?: Record<string, string>; // forwarded minus hop-by-hop + authorization (agent's authorization NEVER forwarded)
-  body?: string; // utf-8; base64 support out of scope MVP
-  approvalId?: string; // plan 07
+  body?: string;                    // utf-8; base64 support out of scope MVP
+  approvalId?: string;              // plan 07
 }
 // 200/2xx: upstream response passthrough: {status, headers (safelist), body}
 // 401 invalid token → AgentGateError body
@@ -36,19 +36,10 @@ interface ProxyRequestBody {
 ```typescript
 // pipeline.ts
 export interface PipelineDeps {
-  tokenService: TokenService;
-  prisma: PrismaClient;
-  secretStore: SecretStore;
-  engine: PolicyEngine;
-  adapters: ProviderAdapter[];
-  audit: AuditRecorder;
-  clock: () => Date;
+  tokenService: TokenService; prisma: PrismaClient; secretStore: SecretStore;
+  engine: PolicyEngine; adapters: ProviderAdapter[]; audit: AuditRecorder; clock: () => Date;
 }
-export async function handleProxyRequest(
-  deps: PipelineDeps,
-  rawAuthHeader: string | undefined,
-  body: ProxyRequestBody,
-): Promise<ProxyOutcome>;
+export async function handleProxyRequest(deps: PipelineDeps, rawAuthHeader: string|undefined, body: ProxyRequestBody): Promise<ProxyOutcome>;
 ```
 
 1. verify JWT → claims; 2. load mission by `claims.missionId`, check status+`expiresAt` vs `clock()` (also mark row expired lazily); 3. limits (below); 4. `normalizeUrl(body.url)`; 5. credential lookup by alias → check `logicalHost === normalized.host` (mismatch → DENY `agentgate_unknown_credential`); 6. `matchNetworkRules` (deny/none → DENY); 7. adapter `mapRequest` (null → DENY unmapped); 8. build `PolicyInput`, `engine.evaluate`; 9. on ALLOW: `secretStore` value → injection header → `forwarder` to `upstreamBaseUrl + path` (undici, 10 s timeout, `x-request-id` set); 10. **always** exactly one `audit.record()` in a `finally` — including thrown errors (decision `ERROR`).
@@ -56,11 +47,7 @@ export async function handleProxyRequest(
 ## Limits (`limits.ts`, SPEC D8)
 
 ```typescript
-export async function consumeRequestSlot(
-  prisma,
-  missionId,
-  limits,
-): Promise<{ ok: true } | { ok: false; reason: 'max_requests' | 'rpm' }>;
+export async function consumeRequestSlot(prisma, missionId, limits): Promise<{ok: true} | {ok: false; reason: "max_requests"|"rpm"}>;
 // atomic: INSERT..ON CONFLICT UPDATE RETURNING on UsageCounter + RateWindow(minute=date_trunc)
 export async function recordBytes(prisma, missionId, n): Promise<void>;
 export function bytesExceeded(counter, limits): boolean; // checked pre-forward with request size; response bytes recorded post-forward

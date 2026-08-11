@@ -17,24 +17,14 @@
 ```typescript
 export class AgentGate {
   constructor(opts: { gatewayUrl: string; token: string });
-  request(req: {
-    credential: string;
-    method: string;
-    url: string;
-    headers?: Record<string, string>;
-    body?: string;
-    approvalId?: string;
-  }): Promise<{ status: number; headers: Record<string, string>; body: string; json<T>(): T }>;
+  request(req: { credential: string; method: string; url: string;
+    headers?: Record<string,string>; body?: string; approvalId?: string }):
+    Promise<{ status: number; headers: Record<string,string>; body: string; json<T>(): T }>;
   // 202 → throws ApprovalRequiredError {approvalId, reason, requestId}
   // 403 → throws AccessDeniedError {reason, requestId}
   // 429 → throws LimitExceededError; 401 → throws InvalidTokenError
-  getApproval(
-    approvalId: string,
-  ): Promise<{ status: 'pending' | 'approved' | 'denied' | 'expired' | 'consumed' }>;
-  waitForApproval(
-    approvalId: string,
-    opts?: { timeoutMs?: number; intervalMs?: number },
-  ): Promise<void>; // polls, throws on denied/timeout
+  getApproval(approvalId: string): Promise<{status: "pending"|"approved"|"denied"|"expired"|"consumed"}>;
+  waitForApproval(approvalId: string, opts?: {timeoutMs?: number; intervalMs?: number}): Promise<void>; // polls, throws on denied/timeout
 }
 ```
 
@@ -48,7 +38,7 @@ No GitHub credential anywhere in the SDK surface. SDK tests: each error mapping;
 4. **Approval**: `POST .../repos/acme/payments/pulls` (title from case-1 issue) → ApprovalRequiredError → print approval URL → `waitForApproval` (orchestrator auto-approves after 2 s when `DEMO_AUTO_APPROVE=1`) → retry with `approvalId` → expect 201, print PR number. Bonus: retry again with same approvalId → expect AccessDeniedError (reuse blocked) — printed as part of the case.
 5. **Dangerous action**: `DELETE .../repos/acme/payments` → AccessDeniedError.
 6. **Mission expiration**: agent signals orchestrator (writes to stdout marker; orchestrator calls `/missions/:id/expire`), then repeats case-1 request → expect mission-expired denial.
-7. **Network isolation proof** (runs first): raw `fetch("http://mock-github:3001/repos/acme/payments")` → must FAIL (DNS/timeout ≤3 s); direct internet `fetch("https://example.com")` → must FAIL. Prints both.
+0. **Network isolation proof** (runs first): raw `fetch("http://mock-github:3001/repos/acme/payments")` → must FAIL (DNS/timeout ≤3 s); direct internet `fetch("https://example.com")` → must FAIL. Prints both.
 
 `main.ts`: runs 0→6 sequentially, prints a final table, exit code 0 only if all pass. Env: `AGENTGATE_URL`, `AGENTGATE_TOKEN` (injected by orchestrator via `docker compose run -e`).
 
