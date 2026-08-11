@@ -20,9 +20,11 @@ services:
       POSTGRES_PASSWORD: agentgate
       POSTGRES_DB: agentgate
     ports:
-      # Exposed on the host so `pnpm -r test` can run integration tests against
-      # this instance. Override POSTGRES_PORT when 5432 is already taken.
-      - '${POSTGRES_PORT:-5432}:5432'
+      # Loopback only. Exposed on the host so `pnpm -r test` can run integration tests against
+      # this instance, and that is the whole reason: the password is `agentgate`, committed in
+      # .env.example, so a port on 0.0.0.0 is an open database for everyone on the network.
+      # Override POSTGRES_PORT when 5432 is already taken.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -47,8 +49,15 @@ services:
       # In-network OPA address; only consulted when POLICY_ENGINE=opa.
       OPA_URL: http://opa:8181
     ports:
+      # Loopback by default, and the one service where that is a decision rather than an
+      # obvious yes: the gateway is the enforcement point, so an agent running on another
+      # machine has a real reason to reach it. It is still bound to 127.0.0.1 out of the box,
+      # because this port carries the management API as well as the proxy — publishing it is
+      # publishing the mint-a-token and approve-an-approval routes, guarded by one shared
+      # ADMIN_TOKEN whose committed dev value is `dev-admin-token-DEV-ONLY`. Exposing it is
+      # therefore a deliberate act: set GATEWAY_BIND=0.0.0.0, after reading THREAT_MODEL.md.
       # Override GATEWAY_PORT when 8080 is already taken on the host.
-      - '${GATEWAY_PORT:-8080}:8080'
+      - '${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080'
     healthcheck:
       test:
         [
@@ -99,8 +108,10 @@ services:
       # Read-only: a policy change is a commit, never a container-side edit.
       - ./policies:/policies:ro
     ports:
+      # Loopback only: OPA's API has no authentication at all, and `PUT /v1/policies` on an
+      # open one is a way to rewrite this deployment's authorization rules from the network.
       # Exposed so the parity suite can run against it. Override OPA_PORT when 8181 is taken.
-      - '${OPA_PORT:-8181}:8181'
+      - '127.0.0.1:${OPA_PORT:-8181}:8181'
 
   web:
     build:
@@ -123,8 +134,13 @@ services:
       POLICY_ENGINE: ${POLICY_ENGINE:-builtin}
       PORT: 3000
     ports:
+      # Loopback only, and this one is not negotiable. The console has no authentication of its
+      # own: it holds ADMIN_TOKEN server-side and applies it on behalf of whoever reaches its
+      # route handlers, so approving an approval and minting an agent token are available to
+      # anyone who can open the page. Publishing this port beyond localhost publishes those
+      # buttons. See THREAT_MODEL.md, "The console has no authentication".
       # Override WEB_PORT when 3000 is already taken on the host.
-      - '${WEB_PORT:-3000}:3000'
+      - '127.0.0.1:${WEB_PORT:-3000}:3000'
     healthcheck:
       test:
         [
