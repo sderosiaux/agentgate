@@ -1,0 +1,22 @@
+{
+  "name": "@agentgate/demo-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "typecheck": "pnpm --filter \"@agentgate/demo-agent^...\" build && tsc -p tsconfig.test.json",
+    "test": "pnpm --filter \"@agentgate/demo-agent^...\" build && vitest run"
+  },
+  "dependencies": {
+    "@agentgate/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

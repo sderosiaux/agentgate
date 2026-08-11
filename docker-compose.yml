@@ -101,3 +101,25 @@ services:
     ports:
       # Exposed so the parity suite can run against it. Override OPA_PORT when 8181 is taken.
       - '${OPA_PORT:-8181}:8181'
+
+  demo-agent:
+    build:
+      context: .
+      dockerfile: apps/demo-agent/Dockerfile
+    # agent-net ONLY, and this is the whole demonstration: there is no route from here to
+    # mock-github, to the database or to the internet. The gateway is the single address this
+    # container can resolve, so every request it makes is one somebody decided about.
+    networks: [agent-net]
+    # Not started by `docker compose up`: the demo agent runs once, says what happened and
+    # exits. `make demo` starts it with `docker compose run`, which is what injects the
+    # mission token minted for that run.
+    profiles: [demo]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    # No env_file, on purpose. This container's environment holds a gateway url, a mission
+    # token and a credential *alias* — case 2 prints all of it — and .env holds the upstream
+    # token the demo is about keeping out of here.
+    environment:
+      DEMO_MODE: container
+    # No ports: nothing connects to the agent. It only ever calls out, to one place.

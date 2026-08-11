@@ -1,4 +1,4 @@
-.PHONY: help setup dev dev-db require-env db-migrate test demo reset
+.PHONY: help setup dev dev-db require-env db-migrate test demo demo-host reset
 
 help: ## List the available targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -27,8 +27,12 @@ db-migrate: require-env ## Apply migrations from the host to the test database
 test: require-env dev-db db-migrate ## Run every workspace test suite (needs the database)
 	pnpm -r test
 
-demo: ## Run the end-to-end authorization demo
-	@echo "The demo scenario is implemented in sub-plan 09 (SDK + demo agent)."
+demo: require-env ## Run the end-to-end authorization demo (cases 0-6, in containers)
+	docker compose build demo-agent
+	node scripts/demo-orchestrator.mjs
+
+demo-host: require-env db-migrate ## Run the demo without Docker: local gateway, upstream and agent
+	DEMO_MODE=host node scripts/demo-orchestrator.mjs
 
 reset: ## Tear the stack down and delete its data
 	docker compose down -v
