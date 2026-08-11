@@ -237,6 +237,15 @@ export const DECISION_MATRIX: readonly DecisionCase[] = [
   },
 ];
 
+/** One well-formed case, for tests about plumbing rather than about precedence. */
+export const SAMPLE_CASE: DecisionCase = {
+  name: 'a plain allowed read',
+  permissions: permissions(SCOPE, ['repo.read'], [], []),
+  resource: PAYMENTS,
+  action: { type: 'repo.read', method: 'GET' },
+  expected: allow('repo.read'),
+};
+
 /** Wraps a case into the full input, with the fields the engine must not read held constant. */
 export function inputFor(decisionCase: DecisionCase): PolicyInput {
   return {

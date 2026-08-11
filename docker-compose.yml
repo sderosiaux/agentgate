@@ -79,3 +79,23 @@ services:
       timeout: 3s
       retries: 20
       start_period: 20s
+
+  opa:
+    image: openpolicyagent/opa:1.19.0
+    # Optional: the gateway uses its builtin engine unless POLICY_ENGINE=opa. The container
+    # exists so the same rego the parity suite tests can be exercised for real.
+    networks: [service-net]
+    command:
+      - run
+      - --server
+      - --addr
+      - 0.0.0.0:8181
+      - --log-level
+      - error
+      - /policies
+    volumes:
+      # Read-only: a policy change is a commit, never a container-side edit.
+      - ./policies:/policies:ro
+    ports:
+      # Exposed so the parity suite can run against it. Override OPA_PORT when 8181 is taken.
+      - '${OPA_PORT:-8181}:8181'

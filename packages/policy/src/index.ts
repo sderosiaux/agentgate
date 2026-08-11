@@ -5,3 +5,4 @@ export { actionImplied } from './actions.js';
 export { githubAdapter } from './adapters/github.js';
 export type { MappedRequest, ProviderAdapter } from './adapters/types.js';
 export { createBuiltinEngine } from './engine.js';
+export { createOpaEngine } from './opa.js';
