@@ -6,7 +6,7 @@ test('a denied decision serialises to the machine-readable body from the spec', 
     'agentgate_access_denied',
     403,
     'Repository is outside the mission scope.',
-    { decision: 'DENY', matchedPolicy: 'mission.resources' },
+    { decision: 'DENY', details: { matchedPolicy: 'mission.resources' } },
   );
 
   expect(error.toBody('req_123')).toEqual({
@@ -15,6 +15,15 @@ test('a denied decision serialises to the machine-readable body from the spec', 
     reason: 'Repository is outside the mission scope.',
     request_id: 'req_123',
   });
+});
+
+test('the decision stays readable on the error itself', () => {
+  const error = new AgentGateError('agentgate_approval_required', 202, 'Waiting for approval.', {
+    decision: 'REQUIRE_APPROVAL',
+  });
+
+  expect(error.decision).toBe('REQUIRE_APPROVAL');
+  expect(error.details).toBeUndefined();
 });
 
 test('the body omits decision when the error carries none', () => {
@@ -30,9 +39,9 @@ test('the body omits decision when the error carries none', () => {
   expect('decision' in body).toBe(false);
 });
 
-test('a details bag without a decision key stays out of the body', () => {
+test('details stay server-side and never reach the client body', () => {
   const error = new AgentGateError('agentgate_limit_exceeded', 429, 'Request budget exhausted.', {
-    maxRequests: 500,
+    details: { maxRequests: 500, spent: 500 },
   });
 
   expect(error.toBody('req_789')).toEqual({
@@ -40,11 +49,12 @@ test('a details bag without a decision key stays out of the body', () => {
     reason: 'Request budget exhausted.',
     request_id: 'req_789',
   });
+  expect(error.details).toEqual({ maxRequests: 500, spent: 500 });
 });
 
-test('an unrecognised decision value in details is not propagated', () => {
+test('a decision buried in details is no longer a hidden channel', () => {
   const error = new AgentGateError('agentgate_upstream_error', 502, 'Upstream refused.', {
-    decision: 'MAYBE',
+    details: { decision: 'DENY' },
   });
 
   expect(error.toBody('req_abc')).not.toHaveProperty('decision');

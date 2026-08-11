@@ -1,4 +1,4 @@
-import { type Decision, isDecision } from './decision.js';
+import type { Decision } from './decision.js';
 
 export type AgentGateErrorCode =
   | 'agentgate_access_denied'
@@ -19,23 +19,33 @@ export interface AgentGateErrorBody {
   request_id: string;
 }
 
+export interface AgentGateErrorOptions {
+  /** The authorization outcome, when the error is one. It is the only option echoed to the client. */
+  decision?: Decision | undefined;
+  /** Free-form context for logs and audit rows. Never serialised into a response body. */
+  details?: Record<string, unknown> | undefined;
+}
+
 export class AgentGateError extends Error {
+  readonly decision: Decision | undefined;
+  readonly details: Record<string, unknown> | undefined;
+
   constructor(
     public readonly code: AgentGateErrorCode,
     public readonly httpStatus: number,
     message: string,
-    public readonly details?: Record<string, unknown>,
+    options: AgentGateErrorOptions = {},
   ) {
     super(message);
     this.name = 'AgentGateError';
+    this.decision = options.decision;
+    this.details = options.details;
   }
 
   toBody(requestId: string): AgentGateErrorBody {
-    const decision = this.details?.['decision'];
-
     return {
       error: this.code,
-      ...(isDecision(decision) ? { decision } : {}),
+      ...(this.decision === undefined ? {} : { decision: this.decision }),
       reason: this.message,
       request_id: requestId,
     };
