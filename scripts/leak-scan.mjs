@@ -207,11 +207,21 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-/** Starts a local service and waits for it to answer. Its own output is scanned too. */
+/**
+ * Starts a local service and waits for it to answer. Its own output is scanned too.
+ *
+ * The child inherits this process's environment minus MOCK_GITHUB_TOKEN, which loadEnvFile
+ * put there as a needle: nothing the scanner starts reads it (only prisma/seed.ts does), so
+ * handing it to them would only plant the very string we are hunting inside the processes we
+ * inspect. ADMIN_TOKEN stays, because the gateway needs it to authenticate the API sweep —
+ * so a future stage that captures a process environment (a debug endpoint, a crash dump)
+ * would report it and be looking at the scanner's own doing, not at a leak.
+ */
 async function startService(name, command, args, env, healthUrl, timeoutMs = 90_000) {
+  const { MOCK_GITHUB_TOKEN: _withheld, ...inherited } = process.env;
   const child = spawn(command, args, {
     cwd: ROOT,
-    env: { ...process.env, ...env },
+    env: { ...inherited, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   started.push(child);
