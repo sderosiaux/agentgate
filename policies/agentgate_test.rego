@@ -142,6 +142,61 @@ test_provider_is_part_of_the_scope_key if {
 	result.matchedPolicy == "mission-resource-scope"
 }
 
+# A malformed input must never produce an ALLOW. The TypeScript side rejects these before
+# they are ever sent, so the only contract here is that the policy fails closed on its own.
+malformed_input := input_with(permissions_with(["repo.read"], [], []), payments, reads)
+
+test_missing_resource_provider_denies if {
+	result := agentgate.decision with input as input_with(
+		permissions_with(["repo.read"], [], []),
+		{"id": "acme/payments"},
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_missing_resource_id_denies if {
+	result := agentgate.decision with input as input_with(
+		permissions_with(["repo.read"], [], []),
+		{"provider": "github"},
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_absent_resource_denies if {
+	result := agentgate.decision with input as object.remove(malformed_input, {"resource"})
+	result.decision == "DENY"
+}
+
+test_non_string_provider_denies if {
+	result := agentgate.decision with input as input_with(
+		permissions_with(["repo.read"], [], []),
+		{"provider": ["github"], "id": "acme/payments"},
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_missing_action_type_denies if {
+	result := agentgate.decision with input as input_with(
+		permissions_with(["repo.read"], [], []),
+		payments,
+		{"method": "GET"},
+	)
+	result.decision == "DENY"
+}
+
+test_absent_permissions_denies if {
+	result := agentgate.decision with input as json.remove(malformed_input, ["/mission/permissions"])
+	result.decision == "DENY"
+}
+
+test_empty_input_denies if {
+	result := agentgate.decision with input as {}
+	result.decision == "DENY"
+}
+
 test_scope_has_no_wildcard if {
 	result := agentgate.decision with input as input_with(
 		{"resources": ["github:acme/*"], "allowedActions": ["repo.read"], "approvalActions": [], "deniedActions": []},
