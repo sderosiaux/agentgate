@@ -1,5 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import {
+  createdPullRequest,
+  paymentsIssue423,
+  paymentsRepo,
+  secretProjectRepo,
+} from './fixtures.js';
 
 export interface MockGithubOptions extends FastifyServerOptions {
   /** Bearer token every route requires. Never logged, never echoed back. */
@@ -57,6 +63,28 @@ export function buildMockGithub(options: MockGithubOptions): FastifyInstance {
   });
 
   app.get(HEALTHZ, async () => ({ status: 'ok' }));
+
+  app.get('/repos/acme/payments', async () => paymentsRepo);
+
+  app.get('/repos/acme/payments/issues/423', async () => paymentsIssue423);
+
+  app.post('/repos/acme/payments/pulls', async (request, reply) => {
+    const body = request.body as { title?: unknown } | null;
+    const title = typeof body?.title === 'string' ? body.title.trim() : '';
+
+    if (title.length === 0) {
+      return reply.code(422).send({ message: 'Validation Failed' });
+    }
+
+    return reply.code(201).send(createdPullRequest(title));
+  });
+
+  // Both routes below succeed on purpose: the credential is allowed to read the
+  // secret repository and to delete the payments one. The demo denies them at the
+  // gateway, showing that the limits come from policy rather than from the token.
+  app.get('/repos/acme/secret-project', async () => secretProjectRepo);
+
+  app.delete('/repos/acme/payments', async (_request, reply) => reply.code(204).send());
 
   app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ message: 'Not Found' }));
 
