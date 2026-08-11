@@ -9,8 +9,11 @@ FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY services/mock-github/package.json services/mock-github/
 # Every workspace project must be present or the frozen lockfile no longer matches.
+# Keep this list in sync with pnpm-workspace.yaml: a new project without a line
+# here breaks the image build, and only the image build.
 COPY apps/gateway/package.json apps/gateway/
 COPY packages/auth/package.json packages/auth/
+COPY packages/policy/package.json packages/policy/
 COPY packages/shared/package.json packages/shared/
 # --ignore-scripts: the postinstall and prepare scripts of the other workspace
 # projects compile sources this layer does not have. The build below is explicit.
