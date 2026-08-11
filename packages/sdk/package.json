@@ -1,6 +1,7 @@
 {
   "name": "@agentgate/sdk",
   "version": "0.1.0",
+  "description": "AgentGate client for agents. NOT PUBLISHED: no npm release exists, and `private: true` is deliberate — this is a prototype with no versioning policy behind it. Consume it from this workspace, or vendor dist/. The wire contract it wraps (POST /v1/proxy) is documented in the OpenAPI document and is what to write against if you would rather not depend on unreleased code.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -11,6 +12,9 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "prepare": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
