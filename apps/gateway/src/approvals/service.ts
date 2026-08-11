@@ -165,6 +165,23 @@ function classify(row: ApprovalRow | null, binding: ApprovalBinding): ConsumeOut
 }
 
 /**
+ * A losing insert on the partial unique index, whichever layer names it: Prisma's own code for
+ * a unique violation, or the postgres one when the driver hands the error through untranslated.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+
+  return code === 'P2002' || code === '23505';
+}
+
+/**
+ * How many times a racing caller re-reads before giving up. Two rounds cover the race itself;
+ * the third only matters if a human decided the winning row in between, which frees the intent
+ * and lets this request legitimately open a new one.
+ */
+const CREATE_PENDING_ATTEMPTS = 3;
+
+/**
  * Approval records and the single-use grants they turn into (SPEC D7).
  *
  * The clock is injected for the same reason the pipeline's is: whether a grant is still good is
@@ -173,6 +190,19 @@ function classify(row: ApprovalRow | null, binding: ApprovalBinding): ConsumeOut
 export function createApprovalService(prisma: PrismaClient, clock: () => Date): ApprovalService {
   async function findById(id: string): Promise<ApprovalRow | null> {
     return prisma.approval.findUnique({ where: { id } });
+  }
+
+  /** The one row the partial unique index allows for an intent, if it exists yet. */
+  async function findPending(binding: ApprovalBinding): Promise<ApprovalRow | null> {
+    return prisma.approval.findFirst({
+      where: {
+        missionId: binding.missionId,
+        agentId: binding.agentId,
+        resource: binding.resource,
+        action: binding.action,
+        status: 'pending',
+      },
+    });
   }
 
   /**
@@ -222,40 +252,48 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
   return {
     async createPending(input) {
       // An agent that keeps retrying a gated request must not fill a human's queue with the
-      // same question. Two simultaneous first attempts can still both land here and create two
-      // pending rows — a duplicate question, which a human answers once and lets expire once,
-      // rather than a duplicate grant: each row is still consumable exactly once.
-      const waiting = await prisma.approval.findFirst({
-        where: {
-          missionId: input.missionId,
-          agentId: input.agentId,
-          resource: input.resource,
-          action: input.action,
-          status: 'pending',
-        },
-        orderBy: { requestedAt: 'asc' },
-      });
+      // same question, and looking before creating does not achieve that: 24 concurrent first
+      // attempts through the proxy produced 24 pending rows, because all 24 looked before any
+      // of them wrote. The partial unique index added in migration
+      // 20260811114500_one_pending_approval_per_intent is what actually decides; the read
+      // below is the fast path, and losing the insert is how a racer learns who won.
+      for (let attempt = 0; attempt < CREATE_PENDING_ATTEMPTS; attempt += 1) {
+        const waiting = await findPending(input);
 
-      if (waiting !== null) {
-        return { approvalId: waiting.id, created: false };
+        if (waiting !== null) {
+          return { approvalId: waiting.id, created: false };
+        }
+
+        const approvalId = newId('apr');
+
+        try {
+          await prisma.approval.create({
+            data: {
+              id: approvalId,
+              missionId: input.missionId,
+              agentId: input.agentId,
+              resource: input.resource,
+              action: input.action,
+              reason: input.reason,
+              requestSummary: { ...input.requestSummary },
+              status: 'pending',
+              requestedAt: clock(),
+            },
+          });
+
+          return { approvalId, created: true };
+        } catch (error) {
+          if (!isUniqueViolation(error)) {
+            throw error;
+          }
+          // Somebody else asked the same question first. Round two reads their row — unless a
+          // human decided it in the meantime, in which case this request does need a new one.
+        }
       }
 
-      const approvalId = newId('apr');
-      await prisma.approval.create({
-        data: {
-          id: approvalId,
-          missionId: input.missionId,
-          agentId: input.agentId,
-          resource: input.resource,
-          action: input.action,
-          reason: input.reason,
-          requestSummary: { ...input.requestSummary },
-          status: 'pending',
-          requestedAt: clock(),
-        },
-      });
-
-      return { approvalId, created: true };
+      throw new Error(
+        `Could not open an approval for ${input.action} on ${input.resource}: the pending row kept changing underneath`,
+      );
     },
 
     async approve(id, decidedBy) {

@@ -111,6 +111,25 @@ test('an agent that keeps retrying asks the same question, not a new one each ti
   expect(await harness.prisma.approval.count({ where: { missionId: harness.missionId } })).toBe(1);
 });
 
+test('a burst of first attempts asks a human exactly once', async () => {
+  const harness = await start();
+  const token = await harness.mint();
+
+  // The retry loop an agent actually writes: not two requests one after the other, but a
+  // handful in flight at once. Read-then-create lets every one of them find nothing and
+  // create its own row — measured at 13 to 23 rows out of 24 attempts before the unique
+  // index below existed, which is a human queue filled by a single intent.
+  const responses = await Promise.all(
+    Array.from({ length: 24 }, async () => openPullRequest(harness, token)),
+  );
+
+  expect(responses.map((response) => response.statusCode)).toEqual(Array<number>(24).fill(202));
+  expect(new Set(responses.map((response) => String(response.json()['approval_id'])))).toHaveLength(
+    1,
+  );
+  expect(await harness.prisma.approval.count({ where: { missionId: harness.missionId } })).toBe(1);
+});
+
 test('approved, retried, and the request goes through exactly as an ALLOW would', async () => {
   const harness = await start();
   const token = await harness.mint();

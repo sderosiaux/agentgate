@@ -86,6 +86,40 @@ test('asking twice for the same action returns the pending approval already wait
   expect(await prisma.approval.count({ where: { missionId } })).toBe(1);
 });
 
+test('sixteen callers asking at once end up with one question, not sixteen', async () => {
+  const outcomes = await Promise.all(Array.from({ length: 16 }, async () => pending()));
+
+  expect(new Set(outcomes.map((outcome) => outcome.approvalId))).toHaveLength(1);
+  // Exactly one of them wrote the row; the other fifteen lost the insert and read it back.
+  expect(outcomes.filter((outcome) => outcome.created)).toHaveLength(1);
+  expect(await prisma.approval.count({ where: { missionId } })).toBe(1);
+});
+
+test('one pending approval per intent is a database constraint, not a convention', async () => {
+  const { approvalId } = await pending();
+
+  await expect(
+    prisma.approval.create({
+      data: {
+        id: 'apr_second_for_the_same_intent',
+        missionId,
+        agentId,
+        resource: 'github:acme/payments',
+        action: 'pull_request.create',
+        reason: 'a second question about the same thing',
+        requestSummary: { method: 'POST', host: 'api.github.com', path: '/x' },
+        status: 'pending',
+        requestedAt: clock.now,
+      },
+    }),
+  ).rejects.toMatchObject({ code: 'P2002' });
+
+  // A decided intent frees the slot: the constraint is on questions still waiting, not on
+  // every approval an agent ever asked for.
+  await service.deny(approvalId, 'alice');
+  expect((await pending()).created).toBe(true);
+});
+
 test('a decided approval no longer absorbs the next request: a new one is created', async () => {
   const first = await pending();
   await service.deny(first.approvalId, 'alice');
@@ -232,6 +266,8 @@ test('the approval lookups this module makes have an index behind them', async (
   `;
 
   expect(indexes.map((index) => index.indexname)).toContain('Approval_missionId_status_idx');
+  // Partial, so Prisma cannot declare it and only the migration keeps it alive.
+  expect(indexes.map((index) => index.indexname)).toContain('Approval_pending_intent_key');
 });
 
 test('the list is filtered by status and by mission, newest first', async () => {
