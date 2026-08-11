@@ -28,7 +28,12 @@ export function createProxyRoutes(deps: PipelineDeps): FastifyPluginAsync {
         request.body,
       );
 
-      void reply.code(outcome.status).headers(outcome.headers);
+      // The one header the gateway adds to an upstream response: it is what ties what the agent
+      // got to the audit row explaining why it got it.
+      void reply
+        .code(outcome.status)
+        .headers(outcome.headers)
+        .header('x-agentgate-request-id', outcome.requestId);
 
       return hasNoBody(outcome.status) ? reply.send() : reply.send(outcome.body);
     });

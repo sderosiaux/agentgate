@@ -83,7 +83,7 @@ test('the audit row of an allowed request names what was decided and how long it
     token,
   );
 
-  const requestId = String(response.headers['x-agentgate-request-id'] ?? '');
+  const requestId = String(response.headers['x-agentgate-request-id']);
   const rows = await harness.prisma.auditEvent.findMany({
     where: { missionId: harness.missionId },
   });
@@ -104,7 +104,8 @@ test('the audit row of an allowed request names what was decided and how long it
   });
   expect(rows[0]?.requestId).toMatch(/^req_/);
   expect(rows[0]?.latencyMs).toBeGreaterThanOrEqual(0);
-  expect(requestId === '' || requestId === rows[0]?.requestId).toBe(true);
+  // What the agent got back is what an operator would search the trail with.
+  expect(requestId).toBe(rows[0]?.requestId);
 });
 
 test('the request id the upstream sees is the gateway one, not the agent one', async () => {
