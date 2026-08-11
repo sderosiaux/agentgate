@@ -23,7 +23,9 @@ export interface ScanExclusions {
   /** Files left unread because the walk hit its own ceiling. */
   overFileCap: number;
   /** Directories this process could not list. */
-  unreadable: number;
+  unreadableDirectories: number;
+  /** Files that could not be opened or read — permissions, a race, a broken device. */
+  unreadableFiles: number;
 }
 
 export interface ScanResult {
@@ -53,9 +55,14 @@ export function describeExclusions(excluded: ScanExclusions): string {
   if (excluded.overFileCap > 0) {
     parts.push(`${String(excluded.overFileCap)} beyond the ${String(MAX_FILES)} file ceiling`);
   }
-  if (excluded.unreadable > 0) {
+  if (excluded.unreadableFiles > 0) {
     parts.push(
-      `${String(excluded.unreadable)} unreadable director${excluded.unreadable === 1 ? 'y' : 'ies'}`,
+      `${String(excluded.unreadableFiles)} unreadable file${excluded.unreadableFiles === 1 ? '' : 's'}`,
+    );
+  }
+  if (excluded.unreadableDirectories > 0) {
+    parts.push(
+      `${String(excluded.unreadableDirectories)} unreadable director${excluded.unreadableDirectories === 1 ? 'y' : 'ies'}`,
     );
   }
 
@@ -73,7 +80,13 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
   const result: ScanResult = {
     filesScanned: 0,
     hits: [],
-    excluded: { overSizeCap: 0, symlinks: 0, overFileCap: 0, unreadable: 0 },
+    excluded: {
+      overSizeCap: 0,
+      symlinks: 0,
+      overFileCap: 0,
+      unreadableDirectories: 0,
+      unreadableFiles: 0,
+    },
   };
   const queue: string[] = [root];
 
@@ -89,7 +102,7 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
     } catch {
       // A directory this process may not read is not a place the token could be hiding *for
       // this process* either — but it is still a gap in the claim, so it is counted.
-      result.excluded.unreadable += 1;
+      result.excluded.unreadableDirectories += 1;
       continue;
     }
 
@@ -123,12 +136,19 @@ export async function scanForString(root: string, needle: string): Promise<ScanR
           continue;
         }
 
-        result.filesScanned += 1;
         const contents = await readFile(full, 'utf8');
+
+        // Counted only once the bytes are in hand. Incrementing before the read made a file
+        // this process cannot open — the exact thing a hidden secret would be sitting in —
+        // count towards "scanned" and towards no exclusion at all, so the one number the case
+        // publishes was the one number it could not support.
+        result.filesScanned += 1;
+
         if (contents.includes(needle)) {
           result.hits.push(path.relative(root, full));
         }
       } catch {
+        result.excluded.unreadableFiles += 1;
         continue;
       }
     }

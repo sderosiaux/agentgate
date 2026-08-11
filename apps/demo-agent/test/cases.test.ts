@@ -1,4 +1,4 @@
-import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -112,6 +112,23 @@ describe('case 2 — secret protection', () => {
     expect(evidence).toContain('not read');
     expect(evidence).toContain('1 file over');
     expect(evidence).toContain('1 symlink');
+  });
+
+  it('does not count a file it could not open as one it read', async () => {
+    const root = await emptyDirectory();
+    const unreadable = path.join(root, 'locked.txt');
+    await writeFile(unreadable, 'whatever');
+    await chmod(unreadable, 0o000);
+    await writeFile(path.join(root, 'readable.txt'), 'fine');
+    const context = contextFor(new StubGate([]), { scanRoot: root });
+
+    const result = await caseSecretProtection(context);
+    const evidence = result.evidence.join('\n');
+
+    // One file was opened, not two: a file that could not be read is a gap in the claim, and
+    // counting it as scanned is the one arithmetic this case must not get wrong.
+    expect(evidence).toContain('scanned 1 files');
+    expect(evidence).toContain('1 unreadable file');
   });
 
   it('says nothing about exclusions when there were none', async () => {
