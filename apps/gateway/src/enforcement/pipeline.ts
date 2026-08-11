@@ -17,6 +17,7 @@ import {
   type MissionPermissions,
   type NetworkRules,
 } from '@agentgate/shared';
+import { z } from 'zod';
 import type { AuditDecision, AuditRecorder } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
 import type { SecretStore } from '../secrets/index.js';
@@ -24,14 +25,45 @@ import { applyInjection } from '../secrets/index.js';
 import { forward } from './forwarder.js';
 import { bytesExceeded, consumeRequestSlot, recordBytes } from './limits.js';
 
-export interface ProxyRequestBody {
-  credential: string;
-  method: string;
-  url: string;
-  headers?: Record<string, string> | undefined;
-  body?: string | undefined;
+/**
+ * Pinned to the shared `HttpMethod`: mission network rules are written with these spellings, so
+ * a method this list accepts and that list cannot express would be a rule nobody can write.
+ * Case is folded first — the wire says `GET`, and an agent writing `get` means the same thing.
+ */
+const MethodSchema = z
+  .string()
+  .transform((method) => method.toUpperCase())
+  .pipe(z.enum(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']));
+
+/**
+ * The agent-facing contract (D1). Strict: a field the gateway does not understand is a request
+ * it cannot reason about, and answering it anyway is how an unchecked knob gets shipped.
+ */
+const ProxyRequestSchema = z.strictObject({
+  credential: z.string().min(1),
+  method: MethodSchema,
+  url: z.string().min(1),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.string().optional(),
   /** Plan 07. Accepted by the contract today, and not yet consumed by anything. */
-  approvalId?: string | undefined;
+  approvalId: z.string().optional(),
+});
+
+export type ProxyRequestBody = z.infer<typeof ProxyRequestSchema>;
+
+function parseProxyRequest(rawBody: unknown): ProxyRequestBody {
+  const parsed = ProxyRequestSchema.safeParse(rawBody);
+
+  if (!parsed.success) {
+    throw new AgentGateError(
+      'agentgate_validation_error',
+      400,
+      'proxy request body is not well formed',
+      { decision: 'DENY', cause: parsed.error },
+    );
+  }
+
+  return parsed.data;
 }
 
 export interface PipelineDeps {
@@ -76,7 +108,8 @@ const AUDIT_DECISION_BY_CODE: Record<AgentGateErrorCode, AuditDecision> = {
 interface Attempt {
   requestId: string;
   startedAt: number;
-  method: string;
+  /** Unknown until the request body has been read, which is after the token is checked. */
+  method?: string;
   principalId?: string;
   agentId?: string;
   missionId?: string;
@@ -85,7 +118,7 @@ interface Attempt {
   destHost?: string;
   destPath?: string;
   contentType?: string;
-  bodySize: number;
+  bodySize?: number;
   bodyHash?: string;
   /**
    * Which rule decided. From the engine when it got that far, and from the pipeline stage that
@@ -184,13 +217,19 @@ async function execute(
   deps: PipelineDeps,
   attempt: Attempt,
   authorization: string | undefined,
-  request: ProxyRequestBody,
+  rawBody: unknown,
 ): Promise<ProxyOutcome> {
   // 1 — the token. Anything wrong with it is one answer: the caller is not identified.
   const claims = await deps.tokenService.verify(bearerToken(authorization));
   attempt.agentId = claims.agentId;
   attempt.principalId = claims.principalId;
   attempt.missionId = claims.missionId;
+
+  // The envelope, read only once the caller is identified: an unauthenticated request gets
+  // "your token is not usable" rather than a critique of a body nobody was going to act on.
+  const request = parseProxyRequest(rawBody);
+  attempt.method = request.method;
+  Object.assign(attempt, describeBody(request));
 
   // 2 — the mission the token is bound to.
   const mission = await deps.prisma.mission.findUnique({ where: { id: claims.missionId } });
@@ -240,7 +279,7 @@ async function execute(
       { decision: 'DENY', details: { limit: slot.reason } },
     );
   }
-  if (bytesExceeded(slot.usage, documents.limits, attempt.bodySize)) {
+  if (bytesExceeded(slot.usage, documents.limits, attempt.bodySize ?? 0)) {
     attempt.matchedPolicy = 'mission-limit-max_bytes';
     throw new AgentGateError('agentgate_limit_exceeded', 429, 'mission exceeded its byte budget', {
       decision: 'DENY',
@@ -339,7 +378,7 @@ async function execute(
     currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },
     data: {
       ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
-      bodySize: attempt.bodySize,
+      bodySize: attempt.bodySize ?? 0,
       ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
     },
   };
@@ -387,7 +426,7 @@ async function execute(
     requestId: attempt.requestId,
   });
 
-  await recordBytes(deps.prisma, mission.id, attempt.bodySize + response.responseBytes);
+  await recordBytes(deps.prisma, mission.id, (attempt.bodySize ?? 0) + response.responseBytes);
 
   return {
     status: response.status,
@@ -408,21 +447,16 @@ export async function handleProxyRequest(
   deps: PipelineDeps,
   requestId: string,
   authorization: string | undefined,
-  request: ProxyRequestBody,
+  rawBody: unknown,
 ): Promise<ProxyOutcome> {
-  const attempt: Attempt = {
-    requestId,
-    startedAt: Date.now(),
-    method: request.method.toUpperCase(),
-    ...describeBody(request),
-  };
+  const attempt: Attempt = { requestId, startedAt: Date.now() };
 
   let outcome: ProxyOutcome | undefined;
   let decision: AuditDecision = 'ERROR';
   let reason = 'the gateway did not reach a decision';
 
   try {
-    outcome = await execute(deps, attempt, authorization, request);
+    outcome = await execute(deps, attempt, authorization, rawBody);
     decision = 'ALLOW';
     reason = attempt.decisionReason ?? 'request forwarded to the upstream';
 
@@ -460,12 +494,12 @@ export async function handleProxyRequest(
       missionId: attempt.missionId ?? null,
       resource: attempt.resource ?? null,
       action: attempt.action ?? null,
-      method: attempt.method,
+      method: attempt.method ?? null,
       destHost: attempt.destHost ?? null,
       destPath: attempt.destPath ?? null,
       matchedPolicy: attempt.matchedPolicy ?? null,
       httpStatus: outcome?.status ?? null,
-      bodySize: attempt.bodySize,
+      bodySize: attempt.bodySize ?? null,
       bodyHash: attempt.bodyHash ?? null,
       contentType: attempt.contentType ?? null,
     });
