@@ -241,7 +241,12 @@ test('an explicit deny rule wins over the allow rule next to it', async () => {
   );
 
   expect(response.statusCode).toBe(403);
-  expect((await auditRow(harness))[0]?.matchedPolicy).toBe('network-deny-rule');
+
+  const [row] = await auditRow(harness);
+  expect(row?.matchedPolicy).toBe('network-deny-rule');
+  // The trail names the rule that decided, not only the request that lost.
+  expect(row?.reason).toContain('api.github.com/repos/acme/payments/issues/**');
+  expect(response.json()['reason']).toContain('api.github.com/repos/acme/payments/issues/**');
 });
 
 test('a route no adapter maps is denied rather than guessed at', async () => {

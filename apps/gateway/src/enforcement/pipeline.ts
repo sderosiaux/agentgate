@@ -3,6 +3,7 @@ import type { TokenService } from '@agentgate/auth';
 import {
   matchNetworkRules,
   normalizeUrl,
+  type NetworkRule,
   type PolicyEngine,
   type PolicyInput,
   type ProviderAdapter,
@@ -192,6 +193,17 @@ function describeBody(
   };
 }
 
+/**
+ * A network rule as the mission wrote it, so a refusal can name the rule that decided rather
+ * than only the request that lost. Nothing is invented: an absent path or method clause is
+ * left absent, because "matches everything" is what absence already means in the document.
+ */
+function describeRule(rule: NetworkRule): string {
+  const methods = rule.methods === undefined ? '' : ` [${rule.methods.join(',')}]`;
+
+  return `${rule.host}${rule.path ?? ''}${methods}`;
+}
+
 interface MissionDocuments {
   permissions: MissionPermissions;
   network: NetworkRules;
@@ -334,7 +346,7 @@ async function execute(
     denied(
       attempt,
       'network-deny-rule',
-      `network rules deny ${request.method} ${normalized.host}${normalized.path}`,
+      `network rule ${describeRule(network.rule)} denies ${request.method} ${normalized.host}${normalized.path}`,
     );
   }
   if (network.matched === 'none') {
