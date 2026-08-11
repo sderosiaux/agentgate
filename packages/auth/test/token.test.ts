@@ -163,6 +163,20 @@ test('garbage is rejected', async () => {
   }
 });
 
+test('an unusable public key is a server fault, not an invalid token', async () => {
+  const misconfigured = createTokenService(keys.privateKeyB64, 'not-a-key');
+  const token = await tokens.mint(claims, inOneHour());
+
+  const error = await misconfigured.verify(token).then(
+    () => undefined,
+    (rejection: unknown) => rejection,
+  );
+
+  expect(error).toBeInstanceOf(Error);
+  expect(error).not.toBeInstanceOf(AgentGateError);
+  expect(error).not.toMatchObject({ code: 'agentgate_invalid_token' });
+});
+
 test('minting without a private key fails loudly, verifying still works', async () => {
   const verifyOnly = createTokenService(undefined, keys.publicKeyB64);
 

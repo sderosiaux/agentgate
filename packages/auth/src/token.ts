@@ -81,10 +81,14 @@ export function createTokenService(
     },
 
     async verify(token) {
+      // Resolved before the try: an unusable public key is a gateway misconfiguration,
+      // and answering "invalid token" would blame the caller for our own fault.
+      const key = await verificationKey();
+
       try {
         // requiredClaims: jose only enforces `exp` when it is present, so without this
         // a signed token carrying no expiry would be valid forever.
-        const { payload } = await jwtVerify(token, await verificationKey(), {
+        const { payload } = await jwtVerify(token, key, {
           algorithms: [ALG],
           requiredClaims: ['exp'],
         });
