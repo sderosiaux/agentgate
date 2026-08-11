@@ -154,6 +154,25 @@ test('a correctly signed token without an exp claim is rejected', async () => {
   });
 });
 
+test('the rejection keeps the underlying jose failure as its cause', async () => {
+  const expired = await tokens.mint(claims, new Date(Date.now() - 1000));
+
+  const error = await tokens.verify(expired).then(
+    () => undefined,
+    (rejection: unknown) => rejection,
+  );
+
+  expect(error).toBeInstanceOf(AgentGateError);
+  expect((error as AgentGateError).cause).toBeInstanceOf(Error);
+  expect((error as AgentGateError).cause).toMatchObject({ code: 'ERR_JWT_EXPIRED' });
+  // The cause is for logs only: it must not travel to the client.
+  expect((error as AgentGateError).toBody('req_cause')).toEqual({
+    error: 'agentgate_invalid_token',
+    reason: 'Agent token is invalid',
+    request_id: 'req_cause',
+  });
+});
+
 test('garbage is rejected', async () => {
   for (const junk of ['', 'not-a-jwt', 'a.b.c']) {
     await expect(tokens.verify(junk)).rejects.toMatchObject({

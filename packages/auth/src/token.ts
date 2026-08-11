@@ -100,10 +100,13 @@ export function createTokenService(
           missionId: readClaim(payload, 'mission_id'),
           sessionId: readClaim(payload, 'session_id'),
         };
-      } catch {
+      } catch (error) {
         // Signature, expiry and shape failures collapse into one answer: the token is
-        // not usable. Telling a caller which check failed only helps forgery.
-        throw new AgentGateError('agentgate_invalid_token', 401, 'Agent token is invalid');
+        // not usable. Telling a caller which check failed only helps forgery — the real
+        // reason travels as `cause`, which stays in the logs.
+        throw new AgentGateError('agentgate_invalid_token', 401, 'Agent token is invalid', {
+          cause: error,
+        });
       }
     },
   };

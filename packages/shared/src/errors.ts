@@ -24,6 +24,8 @@ export interface AgentGateErrorOptions {
   decision?: Decision | undefined;
   /** Free-form context for logs and audit rows. Never serialised into a response body. */
   details?: Record<string, unknown> | undefined;
+  /** The underlying failure, kept for server-side logs. Never serialised into a response body. */
+  cause?: unknown;
 }
 
 export class AgentGateError extends Error {
@@ -36,7 +38,7 @@ export class AgentGateError extends Error {
     message: string,
     options: AgentGateErrorOptions = {},
   ) {
-    super(message);
+    super(message, 'cause' in options ? { cause: options.cause } : undefined);
     this.name = 'AgentGateError';
     this.decision = options.decision;
     this.details = options.details;
