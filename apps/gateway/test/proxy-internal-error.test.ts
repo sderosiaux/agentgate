@@ -1,4 +1,4 @@
-import type { PolicyDecision, PolicyEngine, PolicyInput } from '@agentgate/policy';
+import type { PolicyEngine } from '@agentgate/policy';
 import { afterEach, expect, test } from 'vitest';
 import { startHarness, type Harness } from './helpers/gateway.js';
 
@@ -16,7 +16,7 @@ afterEach(async () => {
 const CAUSE = 'the policy engine tripped over its own shoelaces';
 
 const brokenEngine: PolicyEngine = {
-  async evaluate(_input: PolicyInput): Promise<PolicyDecision> {
+  async evaluate() {
     throw new Error(CAUSE);
   },
 };

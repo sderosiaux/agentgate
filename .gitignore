@@ -7,3 +7,6 @@ dist/
 coverage/
 apps/gateway/src/generated/
 .pnpm-store/
+
+# Captured output from `node scripts/leak-scan.mjs` — a demo transcript, not a source file.
+artifacts/

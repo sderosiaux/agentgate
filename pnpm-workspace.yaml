@@ -2,3 +2,6 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'services/*'
+  # Checks that belong to no single package: the secret-leak scan across the whole running
+  # system, and the repository invariants nothing else would catch.
+  - 'tests'

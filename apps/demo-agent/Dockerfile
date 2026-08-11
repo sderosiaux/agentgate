@@ -12,11 +12,13 @@ COPY apps/demo-agent/package.json apps/demo-agent/
 # Keep this list in sync with pnpm-workspace.yaml: a new project without a line
 # here breaks the image build, and only the image build.
 COPY apps/gateway/package.json apps/gateway/
+COPY apps/web/package.json apps/web/
 COPY packages/auth/package.json packages/auth/
 COPY packages/policy/package.json packages/policy/
 COPY packages/sdk/package.json packages/sdk/
 COPY packages/shared/package.json packages/shared/
 COPY services/mock-github/package.json services/mock-github/
+COPY tests/package.json tests/
 # --ignore-scripts: the `prepare` scripts of the workspace packages compile sources
 # this layer does not have yet. The build below is explicit.
 RUN pnpm install --frozen-lockfile --ignore-scripts

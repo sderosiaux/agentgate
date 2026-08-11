@@ -11,11 +11,14 @@ COPY apps/gateway/package.json apps/gateway/
 # Every workspace project must be present or the frozen lockfile no longer matches.
 # Keep this list in sync with pnpm-workspace.yaml: a new project without a line
 # here breaks the image build, and only the image build.
+COPY apps/demo-agent/package.json apps/demo-agent/
 COPY apps/web/package.json apps/web/
 COPY packages/auth/package.json packages/auth/
 COPY packages/policy/package.json packages/policy/
+COPY packages/sdk/package.json packages/sdk/
 COPY packages/shared/package.json packages/shared/
 COPY services/mock-github/package.json services/mock-github/
+COPY tests/package.json tests/
 # --ignore-scripts: the gateway postinstall runs `prisma generate`, which needs the
 # schema this layer does not have yet, and the package `prepare` scripts compile
 # sources this layer does not have either. Both happen explicitly below.

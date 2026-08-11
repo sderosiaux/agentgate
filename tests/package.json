@@ -1,0 +1,16 @@
+{
+  "name": "@agentgate/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Checks that belong to no single package: the secret-leak scan across the whole running system, and the repository invariants nothing else would catch.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

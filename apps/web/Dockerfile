@@ -10,11 +10,14 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/
 # Every workspace project must be present or the frozen lockfile no longer matches.
 # Keep this list in sync with pnpm-workspace.yaml.
+COPY apps/demo-agent/package.json apps/demo-agent/
 COPY apps/gateway/package.json apps/gateway/
 COPY packages/auth/package.json packages/auth/
 COPY packages/policy/package.json packages/policy/
+COPY packages/sdk/package.json packages/sdk/
 COPY packages/shared/package.json packages/shared/
 COPY services/mock-github/package.json services/mock-github/
+COPY tests/package.json tests/
 # --ignore-scripts: the gateway's postinstall runs `prisma generate` against a schema this
 # layer does not have, and the console does not need it either way.
 RUN pnpm install --frozen-lockfile --ignore-scripts

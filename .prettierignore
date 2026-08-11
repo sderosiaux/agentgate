@@ -6,3 +6,4 @@ apps/gateway/src/generated/
 apps/gateway/prisma/migrations/
 SPEC.md
 docs/
+artifacts/
