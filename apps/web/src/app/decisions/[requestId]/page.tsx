@@ -126,7 +126,7 @@ export default async function DecisionPage({
   }
 
   const snapshot = readSnapshot(record.policyInputSnapshot);
-  const stage = snapshot === null ? refusalStage(record.reason) : null;
+  const stage = snapshot === null ? refusalStage(record.reason, record.matchedPolicy) : null;
 
   return (
     <div className="mx-auto max-w-3xl">

@@ -103,24 +103,52 @@ export function readSnapshot(value: unknown): ReadSnapshot | null {
 /**
  * Which step of the decision order ended the request, when no policy was ever consulted.
  *
- * Derived from the reason the gateway recorded, and deliberately conservative: an unrecognised
- * reason produces no claim at all rather than a plausible-looking guess about a refusal.
+ * Read from `matchedPolicy`, which the gateway writes as a machine-readable stage name, rather
+ * than inferred from the refusal prose. Prose inference got budget refusals wrong every time:
+ * the gateway phrases all three as "mission exceeded its ...", so a test for "mission" fired
+ * before the one for "limit" and the screen announced a dead mission about a live one that had
+ * merely run out of requests. This function's whole job is to avoid claims like that.
  */
-export function refusalStage(reason: string): string | null {
-  const text = reason.toLowerCase();
+const STAGES: Record<string, string> = {
+  'mission-limit-max_requests':
+    'The mission had spent its request budget — step 3 of the decision order.',
+  'mission-limit-rpm':
+    'The mission had used its allowance of requests per minute — step 3 of the decision order. This one refills on its own.',
+  'mission-limit-max_bytes':
+    'The mission had spent its byte budget — step 3 of the decision order.',
+  'mission-expired': 'The mission had passed its deadline — step 2 of the decision order.',
+  'mission-revoked': 'The mission had been revoked — step 2 of the decision order.',
+  'mission-unknown':
+    'The token named a mission that does not exist — step 2 of the decision order.',
+  'mission-status': 'The mission was not active — step 2 of the decision order.',
+  'mission-identity-mismatch':
+    'The token identity did not match the mission it named — step 2 of the decision order.',
+  'mission-unreadable':
+    'The mission scope could not be read, so nothing could be evaluated against it — step 2 of the decision order.',
+  'request-invalid-envelope':
+    'The request envelope was malformed, so the gateway never learned what was being asked.',
+  'request-invalid-url':
+    'The target URL could not be parsed, so there was no host or path to match a rule against.',
+  'request-body-too-large':
+    'The body was larger than the gateway will read. The attempt still counts against the mission budget.',
+};
 
-  if (text.includes('token')) {
-    return 'The agent token was missing, malformed or expired — step 1 of the decision order.';
-  }
-  if (text.includes('mission')) {
-    return 'The mission was missing, expired or revoked — step 2 of the decision order.';
-  }
-  if (text.includes('limit') || text.includes('budget') || text.includes('exceeded')) {
-    return 'The mission had spent its budget — step 3 of the decision order.';
-  }
-  if (text.includes('credential') || text.includes('alias')) {
-    return 'The credential alias could not be resolved, so there was nothing to inject.';
+/**
+ * The one refusal that happens before there is a mission to name a policy about, so the gateway
+ * records no stage for it and the prose is all there is.
+ */
+function fromProse(reason: string): string | null {
+  return reason.toLowerCase().includes('token')
+    ? 'The agent token was missing, malformed or expired — step 1 of the decision order.'
+    : null;
+}
+
+export function refusalStage(reason: string, matchedPolicy: string | null): string | null {
+  if (matchedPolicy !== null) {
+    // No fallback to prose when a policy was named: a stage this console does not recognise is a
+    // gateway newer than it, and guessing from the wording is how the old bug happened.
+    return STAGES[matchedPolicy] ?? null;
   }
 
-  return null;
+  return fromProse(reason);
 }
