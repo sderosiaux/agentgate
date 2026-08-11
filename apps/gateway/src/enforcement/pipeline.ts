@@ -52,7 +52,27 @@ const ProxyRequestSchema = z.strictObject({
 
 export type ProxyRequestBody = z.infer<typeof ProxyRequestSchema>;
 
+/**
+ * Stands in for a body the framework refused to read at all.
+ *
+ * A request too large to buffer is still an attempt: it has a token, a mission and a caller who
+ * should be charged for it. Handing the pipeline this marker instead of letting the framework
+ * answer on its own is what keeps "one audit row, one slot, every attempt" true of the one
+ * request shape nobody bothers to send by accident.
+ */
+export const OVERSIZED_BODY: unique symbol = Symbol('proxy request body exceeded the limit');
+
 function parseProxyRequest(attempt: Attempt, rawBody: unknown): ProxyRequestBody {
+  if (rawBody === OVERSIZED_BODY) {
+    attempt.matchedPolicy = 'request-body-too-large';
+    throw new AgentGateError(
+      'agentgate_validation_error',
+      413,
+      'proxy request body is larger than the gateway will read',
+      { decision: 'DENY' },
+    );
+  }
+
   const parsed = ProxyRequestSchema.safeParse(rawBody);
 
   if (!parsed.success) {
