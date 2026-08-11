@@ -298,6 +298,13 @@ function mutate(breakIt: (draft: Record<string, unknown>) => void): unknown {
   return draft;
 }
 
+/** A well-formed input carrying a permissions document that is not one. */
+function withPermissions(permissionsDocument: Record<string, unknown>): unknown {
+  return mutate((draft) => {
+    (draft.mission as Record<string, unknown>).permissions = permissionsDocument;
+  });
+}
+
 /**
  * Inputs no engine may reason about. Left unchecked these two engines failed open in opposite
  * directions — `provider: ["github"]` allowed on the builtin through `Array.toString`, a
@@ -367,6 +374,70 @@ export const MALFORMED_INPUTS: readonly { name: string; input: unknown }[] = [
         approvalActions: [],
         deniedActions: [],
       };
+    }),
+  },
+  // A corrupted action list is the sharpest case of all: the gate it was holding disappears
+  // and the request lands on whatever the *next* list says. Each of these is built so the
+  // intact document would have blocked, and every one of them allowed before the fix.
+  {
+    name: 'the denied action list is a string naming the requested action',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+      deniedActions: 'repo.read',
+    }),
+  },
+  {
+    name: 'the denied action list is absent',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+    }),
+  },
+  {
+    name: 'the denied action list is null',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+      deniedActions: null,
+    }),
+  },
+  {
+    name: 'the approval action list is a string naming the requested action',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: 'repo.read',
+      deniedActions: [],
+    }),
+  },
+  {
+    name: 'the approval action list is absent',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      deniedActions: [],
+    }),
+  },
+  {
+    name: 'the approval action list is null',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: null,
+      deniedActions: [],
+    }),
+  },
+  {
+    name: 'the allowed action list is a string',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: 'repo.read',
+      approvalActions: [],
+      deniedActions: [],
     }),
   },
   { name: 'the input is an empty object', input: {} },

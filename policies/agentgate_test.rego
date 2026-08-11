@@ -192,6 +192,110 @@ test_absent_permissions_denies if {
 	result.decision == "DENY"
 }
 
+# A corrupted action list must not silently stop holding its gate. Each of these is built so
+# the intact document would have blocked the request.
+test_denied_list_as_string_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": ["repo.read"],
+			"approvalActions": [],
+			"deniedActions": "repo.read",
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_denied_list_absent_denies if {
+	result := agentgate.decision with input as input_with(
+		{"resources": scope, "allowedActions": ["repo.read"], "approvalActions": []},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_denied_list_null_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": ["repo.read"],
+			"approvalActions": [],
+			"deniedActions": null,
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_approval_list_as_string_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": ["repo.read"],
+			"approvalActions": "repo.read",
+			"deniedActions": [],
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_approval_list_absent_denies if {
+	result := agentgate.decision with input as input_with(
+		{"resources": scope, "allowedActions": ["repo.read"], "deniedActions": []},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_approval_list_null_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": ["repo.read"],
+			"approvalActions": null,
+			"deniedActions": [],
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_allowed_list_as_string_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": "repo.read",
+			"approvalActions": [],
+			"deniedActions": [],
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
+test_scope_as_string_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": "github:acme/payments",
+			"allowedActions": ["repo.read"],
+			"approvalActions": [],
+			"deniedActions": [],
+		},
+		payments,
+		reads,
+	)
+	result.decision == "DENY"
+}
+
 test_empty_input_denies if {
 	result := agentgate.decision with input as {}
 	result.decision == "DENY"

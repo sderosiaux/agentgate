@@ -56,7 +56,27 @@ covered_by(list) if {
 	covers(granted, action_type)
 }
 
+# Every list the precedence below consults has to actually be a list.
+#
+# Falling back to an empty list instead would not be safe: for a deny list and an approval
+# list, "empty" is the permissive reading, so a corrupted `deniedActions` would quietly stop
+# denying and the request would land on whatever the next branch says. Measured on a live
+# server: with an `[]` fallback all six corrupted-list cases still came back ALLOW. The only
+# answer to a permissions document we cannot read is to refuse it.
+permissions_well_formed if {
+	is_array(input.mission.permissions.resources)
+	is_array(input.mission.permissions.allowedActions)
+	is_array(input.mission.permissions.approvalActions)
+	is_array(input.mission.permissions.deniedActions)
+}
+
 decision := {
+	"decision": "DENY",
+	"reason": "policy input is not well formed",
+	"matchedPolicy": "mission-default-deny",
+} if {
+	not permissions_well_formed
+} else := {
 	"decision": "DENY",
 	"reason": sprintf("resource %s is not in the mission scope", [resource_key]),
 	"matchedPolicy": "mission-resource-scope",
