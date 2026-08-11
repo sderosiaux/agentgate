@@ -15,9 +15,9 @@ function tamper(blob: Buffer, offset: number): Buffer {
 
 describe('encryptSecret / decryptSecret', () => {
   test('a secret survives a roundtrip', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
-    expect(decryptSecret(KEY, blob)).toBe('super-secret-github-token');
+    expect(decryptSecret(KEY, blob)).toBe('fixture-token-do-not-log');
   });
 
   test('the roundtrip preserves multi-byte characters and empty values', () => {
@@ -36,10 +36,10 @@ describe('encryptSecret / decryptSecret', () => {
   });
 
   test('the ciphertext never contains the plaintext', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
-    expect(blob.toString('utf8')).not.toContain('super-secret');
-    expect(blob.toString('latin1')).not.toContain('super-secret');
+    expect(blob.toString('utf8')).not.toContain('fixture-token');
+    expect(blob.toString('latin1')).not.toContain('fixture-token');
   });
 
   test('encrypting the same secret twice gives different blobs', () => {
@@ -52,13 +52,13 @@ describe('encryptSecret / decryptSecret', () => {
   });
 
   test('decrypting with the wrong key throws', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(OTHER_KEY, blob)).toThrow(/could not be decrypted/i);
   });
 
   test('a flipped ciphertext byte throws', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(KEY, tamper(blob, IV_BYTES + TAG_BYTES))).toThrow(
       /could not be decrypted/i,
@@ -66,19 +66,19 @@ describe('encryptSecret / decryptSecret', () => {
   });
 
   test('a flipped authentication tag byte throws', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(KEY, tamper(blob, IV_BYTES))).toThrow(/could not be decrypted/i);
   });
 
   test('a flipped iv byte throws', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(KEY, tamper(blob, 0))).toThrow(/could not be decrypted/i);
   });
 
   test('a truncated blob throws instead of decrypting garbage', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(KEY, blob.subarray(0, IV_BYTES + TAG_BYTES - 1))).toThrow(
       /too short/i,
@@ -86,7 +86,7 @@ describe('encryptSecret / decryptSecret', () => {
   });
 
   test('the failure never echoes the secret material', () => {
-    const blob = encryptSecret(KEY, 'super-secret-github-token');
+    const blob = encryptSecret(KEY, 'fixture-token-do-not-log');
 
     expect(() => decryptSecret(OTHER_KEY, blob)).toThrow(
       expect.objectContaining({ message: expect.not.stringContaining(OTHER_KEY) }),

@@ -58,7 +58,13 @@ test('the seeded credential exposes an alias, never a plaintext value', async ()
     name: 'Authorization',
     format: 'Bearer {value}',
   });
-  expect(Buffer.from(credential.ciphertext).toString('utf8')).not.toContain('super-secret');
+  // Compared against the configured token rather than a literal: the demo value must not be
+  // written down anywhere in the source tree, tests included.
+  const demoToken = process.env['MOCK_GITHUB_TOKEN'] ?? '';
+  expect(demoToken).not.toBe('');
+  for (const encoding of ['utf8', 'latin1'] as const) {
+    expect(Buffer.from(credential.ciphertext).toString(encoding)).not.toContain(demoToken);
+  }
 });
 
 test('the seeded ciphertext decrypts back to the demo token through the store', async () => {

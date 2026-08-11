@@ -1,3 +1,4 @@
+export { assertBootEnv } from './boot.js';
 export { assertMasterKey, decryptSecret, encryptSecret } from './crypto.js';
 export {
   createDbSecretStore,
