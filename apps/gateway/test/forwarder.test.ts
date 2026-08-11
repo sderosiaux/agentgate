@@ -195,6 +195,20 @@ test('the bytes charged to the mission are the bytes the upstream actually sent'
   expect(result.responseBytes).toBeGreaterThan(Buffer.byteLength(result.body, 'utf8'));
 });
 
+test('a body that is not text does not survive the forward, and that is the contract', async () => {
+  // Characterisation, not an endorsement: `forward` decodes utf-8, so binary bytes come back
+  // as U+FFFD. Nothing reachable produces them — a request only gets here once an adapter has
+  // mapped it, and every adapter maps a JSON API (D4). The day one does not, this test fails
+  // and whoever wrote it has to decide what the forwarder should do instead.
+  const result = await toEcho({ url: 'https://api.github.com/binary' });
+
+  expect(result.responseBytes).toBe(8);
+  expect(Buffer.from(result.body, 'utf8')).not.toEqual(
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  );
+  expect(result.body).toContain('�');
+});
+
 test('the injected credential is what makes the upstream answer', async () => {
   const result = await forward({
     method: 'GET',

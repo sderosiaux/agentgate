@@ -195,6 +195,13 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
   return {
     status: response.status,
     headers: returnedHeaders(response),
+    // Decoded as utf-8, which is a claim about the upstreams this gateway can talk to rather
+    // than about http: bytes that are not text come back with U+FFFD where they were, silently.
+    // It holds because a request only reaches here after a provider adapter mapped it, and
+    // every adapter in the MVP maps a JSON API (D4) — so the set of reachable responses is the
+    // set of JSON responses. An adapter for a binary endpoint would have to make this
+    // conditional on the response content type; the characterisation test in
+    // test/forwarder.test.ts pins the corruption so that change cannot pass unnoticed.
     // An upstream that reflects the request — an echo endpoint, a debug route, a service that
     // quotes the header it rejected — hands the injected credential straight back, and this
     // body goes to the agent. Logs are not the only place a secret can escape from, so the
