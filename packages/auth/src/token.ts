@@ -82,8 +82,11 @@ export function createTokenService(
 
     async verify(token) {
       try {
+        // requiredClaims: jose only enforces `exp` when it is present, so without this
+        // a signed token carrying no expiry would be valid forever.
         const { payload } = await jwtVerify(token, await verificationKey(), {
           algorithms: [ALG],
+          requiredClaims: ['exp'],
         });
 
         return {

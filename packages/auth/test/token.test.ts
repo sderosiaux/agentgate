@@ -135,6 +135,25 @@ test('a correctly signed token missing a claim is rejected', async () => {
   });
 });
 
+test('a correctly signed token without an exp claim is rejected', async () => {
+  const everlasting = await new SignJWT({
+    principal_id: claims.principalId,
+    agent_type: claims.agentType,
+    mission_id: claims.missionId,
+    session_id: claims.sessionId,
+  })
+    .setProtectedHeader({ alg: 'EdDSA' })
+    .setSubject(claims.agentId)
+    .setIssuedAt()
+    // no setExpirationTime: such a token would otherwise never expire
+    .sign(keys.privateKey);
+
+  await expect(tokens.verify(everlasting)).rejects.toMatchObject({
+    code: 'agentgate_invalid_token',
+    httpStatus: 401,
+  });
+});
+
 test('garbage is rejected', async () => {
   for (const junk of ['', 'not-a-jwt', 'a.b.c']) {
     await expect(tokens.verify(junk)).rejects.toMatchObject({
