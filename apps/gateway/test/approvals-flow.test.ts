@@ -312,6 +312,36 @@ test('a denied approval is a no, and stays a no on every retry', async () => {
   });
 });
 
+test('a grant carried by a request that never needed one is spent by nothing, and still visible', async () => {
+  const harness = await start();
+  const token = await harness.mint();
+  const approvalId = String((await openPullRequest(harness, token)).json()['approval_id']);
+  await harness.admin('POST', `/api/v1/approvals/${approvalId}/approve`);
+
+  // An allowed read, with a live grant attached to it. Nothing about the request needs the
+  // grant, so nothing consumes it — but an agent walking the policy with an approval in hand
+  // is exactly what a trail has to be able to show.
+  const allowed = await harness.proxy(
+    {
+      credential: harness.alias,
+      method: 'GET',
+      url: 'https://api.github.com/repos/acme/payments',
+      approvalId,
+    },
+    token,
+  );
+
+  expect(allowed.statusCode).toBe(200);
+  expect(
+    (await harness.prisma.approval.findUniqueOrThrow({ where: { id: approvalId } })).status,
+  ).toBe('approved');
+  expect(await auditRowFor(harness, requestIdOf(allowed))).toMatchObject({
+    decision: 'ALLOW',
+    action: 'repo.read',
+    approvalId,
+  });
+});
+
 test('an approval id nobody issued is refused without creating anything', async () => {
   const harness = await start();
   const token = await harness.mint();

@@ -394,6 +394,13 @@ async function execute(
   const request = parseProxyRequest(attempt, rawBody);
   attempt.method = request.method;
   Object.assign(attempt, describeBody(request));
+  if (request.approvalId !== undefined) {
+    // Recorded here rather than where it is spent, because most of the ways a grant matters to
+    // an operator are the ways it is not spent: attached to a request that was denied earlier,
+    // or to one that never needed it. A trail that only shows the grants that worked cannot
+    // answer "what was this agent doing with an approval in hand".
+    attempt.approvalId = request.approvalId;
+  }
 
   // The byte budget needs the size of the body, so it can only be checked once there is one.
   if (bytesExceeded(slot.usage, documents.limits, attempt.bodySize ?? 0)) {
@@ -548,10 +555,6 @@ async function execute(
     };
 
     if (request.approvalId !== undefined) {
-      // Recorded before the outcome is known: a grant that turns out to be spent, expired or
-      // someone else's is exactly the attempt an operator needs to find by approval id.
-      attempt.approvalId = request.approvalId;
-
       const outcome = await deps.approvals.tryConsume(request.approvalId, binding);
 
       if (outcome !== 'consumed') {
