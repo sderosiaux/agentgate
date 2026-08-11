@@ -86,10 +86,16 @@ export function normalizeUrl(raw: string): NormalizedUrl {
   }
 
   // `example.com.` and `example.com` are the same host to DNS, and url parsing keeps the dot.
-  // Canonicalising here is what stops a deny rule being walked around by writing the fqdn form.
+  // The fully qualified form is the one valid alternative spelling, so it is folded onto the
+  // plain one; every other arrangement of dots — `com..`, `a..b`, a leading dot — is not a
+  // valid hostname at all, and stripping instead of rejecting would just invent a third
+  // spelling of a name a deny rule already covers.
   const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
   if (host === '') {
     invalid('request url must name a host');
+  }
+  if (host.split('.').includes('')) {
+    invalid('request url host must not contain an empty label');
   }
 
   let decoded: string;

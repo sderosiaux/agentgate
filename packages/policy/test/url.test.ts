@@ -40,8 +40,17 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://API.GitHub.COM./repos/acme/payments').host).toBe('api.github.com');
   });
 
+  test('rejects a host carrying an empty label', () => {
+    // None of these is a valid hostname, and each one reaches the same machine as the plain
+    // spelling while reading as a different string to a deny rule.
+    expectRejected('https://internal.acme.com../secret');
+    expectRejected('https://internal..acme.com/secret');
+    expectRejected('https://.internal.acme.com/secret');
+  });
+
   test('rejects a host that is nothing but dots', () => {
     expectRejected('https://./secret');
+    expectRejected('https://../secret');
   });
 
   test('drops the port, which no matching rule speaks about', () => {

@@ -140,11 +140,21 @@ describe('matchNetworkRules', () => {
     expect(match(rules, 'api.github.com', '/repos/acme/payments', 'GET')).toBe('allow');
   });
 
-  test('a deny rule is not walked around by a trailing dot on the host', () => {
+  test('a deny rule is not walked around by dots in the host', () => {
     const rules: NetworkRules = { allow: [{ host: '*' }], deny: [{ host: 'internal.acme.com' }] };
-    const { host, path } = normalizeUrl('https://internal.acme.com./secret');
 
+    // The one valid alternative spelling normalizes onto the deny rule...
+    const { host, path } = normalizeUrl('https://internal.acme.com./secret');
     expect(matchNetworkRules(rules, { host, path, method: 'GET' })).toEqual({ matched: 'deny' });
+
+    // ...and the invalid ones never get as far as being matched at all.
+    for (const raw of [
+      'https://internal.acme.com../secret',
+      'https://internal..acme.com/secret',
+      'https://.internal.acme.com/secret',
+    ]) {
+      expect(() => normalizeUrl(raw), raw).toThrowError();
+    }
   });
 
   test('any matching rule in a list is enough', () => {
