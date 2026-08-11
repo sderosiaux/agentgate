@@ -83,9 +83,23 @@ describe('githubAdapter', () => {
   });
 
   test('an unnormalized path is a programming error, not a routing decision', () => {
-    for (const path of ['/repos/acme/oops/../payments', '/repos/acme/payments/..', '/repos/../x']) {
+    for (const path of [
+      '/repos/acme/oops/../payments',
+      '/repos/acme/payments/..',
+      '/repos/../x',
+      '/..',
+      // A single-dot segment is just as much a sign that nothing normalized this path.
+      '/repos/./acme/payments',
+      '/repos/acme/payments/.',
+      '/.',
+    ]) {
       expect(() => githubAdapter.mapRequest('GET', path), path).toThrowError(AgentGateError);
     }
+  });
+
+  test('a dot inside a name is not a dot segment', () => {
+    expect(githubAdapter.mapRequest('GET', '/repos/acme/some.repo')?.action).toBe('repo.read');
+    expect(githubAdapter.mapRequest('GET', '/repos/acme/..hidden')?.action).toBe('repo.read');
   });
 
   test('a relative path is refused outright', () => {

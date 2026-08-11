@@ -52,9 +52,13 @@ export const githubAdapter: ProviderAdapter = {
   },
 
   mapRequest(method: string, path: string): MappedRequest | null {
-    if (!path.startsWith('/') || path.includes('/../') || path.endsWith('/..')) {
-      // `normalizeUrl` runs before anything reaches here, so a path in this shape means the
-      // pipeline was bypassed. Failing loudly beats mapping a path nobody normalized.
+    const segments = path.split('/').filter((segment) => segment !== '');
+
+    // `normalizeUrl` runs before anything reaches here, and it leaves behind no relative
+    // segment of either kind. One surviving means the pipeline was bypassed, so failing
+    // loudly beats mapping a path nobody normalized. A dot *inside* a name is untouched:
+    // only a segment that is exactly `.` or `..` is a relative segment.
+    if (!path.startsWith('/') || segments.some((segment) => segment === '.' || segment === '..')) {
       throw new AgentGateError(
         'agentgate_validation_error',
         400,
@@ -62,7 +66,6 @@ export const githubAdapter: ProviderAdapter = {
       );
     }
 
-    const segments = path.split('/').filter((segment) => segment !== '');
     const [root, owner, repo] = segments;
     if (root !== 'repos' || !isName(owner) || !isName(repo)) {
       return null;
