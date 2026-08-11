@@ -6,6 +6,7 @@ import {
   newId,
 } from '@agentgate/shared';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { decodeJwt } from 'jose';
 import { z } from 'zod';
 import {
   badRequest,
@@ -306,7 +307,7 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
 
         // The token never outlives its mission, and never lives longer than an hour either.
         const ceiling = new Date(now.getTime() + MAX_TOKEN_TTL_MS);
-        const expiresAt = mission.expiresAt < ceiling ? mission.expiresAt : ceiling;
+        const deadline = mission.expiresAt < ceiling ? mission.expiresAt : ceiling;
         const sessionId = newId('ses');
 
         const token = await deps.tokenService.mint(
@@ -317,8 +318,16 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
             missionId: mission.id,
             sessionId,
           },
-          expiresAt,
+          deadline,
         );
+
+        // Read back out of the token rather than reported from the deadline that went into it.
+        // A JWT `exp` is whole seconds, so a deadline carrying milliseconds is floored on the
+        // way in; reporting the unfloored value hands the client an instant at which the token
+        // is already dead — up to 999 ms of it — and a client that re-mints exactly then
+        // presents one that has just expired. Derived from the claim, the two cannot diverge,
+        // whatever the signing library does with the fraction.
+        const expiresAt = new Date(Number(decodeJwt(token).exp) * 1000);
 
         return { token, expiresAt: expiresAt.toISOString(), sessionId };
       },

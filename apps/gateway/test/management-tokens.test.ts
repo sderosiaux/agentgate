@@ -1,3 +1,4 @@
+import { decodeJwt } from 'jose';
 import { afterEach, expect, test } from 'vitest';
 import { MAX_TOKEN_TTL_MS } from '../src/management/missions.routes.js';
 import { startHarness, type Harness, type HarnessOptions } from './helpers/gateway.js';
@@ -53,6 +54,23 @@ test('a token minted through the management API is a token the proxy accepts', a
   });
 });
 
+/** A deadline as a JWT can express it: whole seconds, never rounded up. */
+function flooredToSecond(at: Date): string {
+  return new Date(Math.floor(at.getTime() / 1000) * 1000).toISOString();
+}
+
+test('the expiry the caller is told is the expiry the token actually has', async () => {
+  const harness = await start();
+
+  const minted = (await mintFor(harness, harness.missionId)).json();
+  const claims = decodeJwt(String(minted['token']));
+
+  // The invariant, stated where it can be measured: the instant in the answer is the instant
+  // the token stops working. Reported from the requested deadline instead, the two drifted by
+  // up to 999 ms, and a client re-minting on the reported instant presented a dead token.
+  expect(Number(claims.exp) * 1000).toBe(Date.parse(String(minted['expiresAt'])));
+});
+
 test('a token never outlives its mission, and never lives longer than an hour', async () => {
   const shortMission = await start({ expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
   const shortToken = await mintFor(shortMission, shortMission.missionId);
@@ -60,15 +78,16 @@ test('a token never outlives its mission, and never lives longer than an hour', 
     where: { id: shortMission.missionId },
   });
 
-  // The mission is the shorter of the two, so it is the deadline.
-  expect(String(shortToken.json()['expiresAt'])).toBe(shortMissionRow.expiresAt.toISOString());
+  // The mission is the shorter of the two, so it is the deadline — to the second a token can
+  // actually carry, which is the instant the answer reports.
+  expect(String(shortToken.json()['expiresAt'])).toBe(flooredToSecond(shortMissionRow.expiresAt));
 
   const longMission = await start({ expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
   const longToken = await mintFor(longMission, longMission.missionId);
-  const ceiling = new Date(longMission.clock.now.getTime() + MAX_TOKEN_TTL_MS).toISOString();
+  const ceiling = new Date(longMission.clock.now.getTime() + MAX_TOKEN_TTL_MS);
 
   // A mission that runs all day still hands out keys that are worth an hour.
-  expect(String(longToken.json()['expiresAt'])).toBe(ceiling);
+  expect(String(longToken.json()['expiresAt'])).toBe(flooredToSecond(ceiling));
 });
 
 test('an expired mission mints nothing, and the row stops claiming to be active', async () => {

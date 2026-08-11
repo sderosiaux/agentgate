@@ -24,6 +24,7 @@
     "@prisma/client": "^7.9.1",
     "fastify": "^5.11.3",
     "fastify-type-provider-zod": "^7.0.0",
+    "jose": "^6.2.8",
     "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
@@ -31,7 +32,6 @@
     "@agentgate/mock-github": "workspace:*",
     "@types/node": "^22.19.2",
     "dotenv": "^17.4.2",
-    "jose": "^6.2.8",
     "openapi-types": "^12.1.3",
     "prisma": "^7.9.1",
     "tsx": "^4.23.12",
