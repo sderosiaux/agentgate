@@ -4,6 +4,7 @@ import type { Logger } from 'pino';
 import { createApprovalRoutes } from './approvals/agent.routes.js';
 import type { PipelineDeps } from './enforcement/pipeline.js';
 import { createProxyRoutes } from './enforcement/proxy.route.js';
+import { replyWithError } from './http/errors.js';
 import { createLogger } from './logging.js';
 import { createManagementRoutes } from './management/plugin.js';
 
@@ -15,12 +16,17 @@ import { createManagementRoutes } from './management/plugin.js';
 export interface GatewayDeps extends PipelineDeps {
   /** Guards the management tree. Only that tree ever sees it. */
   adminToken: string;
+  /**
+   * The key credentials are encrypted with. Management needs it to *write* one; the enforcement
+   * path never sees it — it reads through `secretStore`, which holds its own copy.
+   */
+  masterKey: string;
   logger?: Logger;
   fastify?: FastifyServerOptions;
 }
 
 export function buildApp(deps: GatewayDeps): FastifyInstance {
-  const { logger, fastify, adminToken, ...pipeline } = deps;
+  const { logger, fastify, adminToken, masterKey, ...pipeline } = deps;
 
   // Request ids are AgentGate ids: the same value is echoed as `request_id` in error bodies,
   // stored on every audit event and sent upstream as `x-request-id`.
@@ -40,7 +46,16 @@ export function buildApp(deps: GatewayDeps): FastifyInstance {
 
   // The management tree, wired separately and guarded by its own credential. Neither tree
   // imports the other (D11): this file is the only place that knows both exist.
-  void app.register(createManagementRoutes({ approvals: pipeline.approvals, adminToken }));
+  void app.register(
+    createManagementRoutes({
+      prisma: pipeline.prisma,
+      approvals: pipeline.approvals,
+      tokenService: pipeline.tokenService,
+      clock: pipeline.clock,
+      adminToken,
+      masterKey,
+    }),
+  );
 
   app.setNotFoundHandler(async (request, reply) =>
     reply
@@ -50,27 +65,7 @@ export function buildApp(deps: GatewayDeps): FastifyInstance {
       ),
   );
 
-  app.setErrorHandler(async (error, request, reply) => {
-    const requestId = String(request.id);
-
-    if (error instanceof AgentGateError) {
-      // Logged with its cause, which is where the real reason lives: what the agent is told is
-      // deliberately thinner than what an operator can read.
-      request.log.warn({ err: error, code: error.code }, 'request refused');
-
-      return reply.code(error.httpStatus).send(error.toBody(requestId));
-    }
-
-    request.log.error({ err: error }, 'request failed');
-
-    return reply
-      .code(500)
-      .send(
-        new AgentGateError('agentgate_upstream_error', 500, 'the gateway could not answer').toBody(
-          requestId,
-        ),
-      );
-  });
+  app.setErrorHandler(async (error, request, reply) => replyWithError(request, reply, error));
 
   return app;
 }

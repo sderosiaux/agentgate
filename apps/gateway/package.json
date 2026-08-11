@@ -18,9 +18,12 @@
     "@agentgate/auth": "workspace:*",
     "@agentgate/policy": "workspace:*",
     "@agentgate/shared": "workspace:*",
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "fastify": "^5.11.3",
+    "fastify-type-provider-zod": "^7.0.0",
     "pino": "^10.3.1",
     "zod": "^4.4.3"
   },

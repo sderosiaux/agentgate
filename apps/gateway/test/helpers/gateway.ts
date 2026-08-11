@@ -191,6 +191,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     clock: () => clock.now,
     environment: 'development',
     adminToken: ADMIN_TOKEN,
+    masterKey: MASTER_KEY,
     logger: createLogger({
       level: 'trace',
       destination: {

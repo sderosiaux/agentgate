@@ -41,6 +41,7 @@ const app = buildApp({
   clock,
   environment: config.environment,
   adminToken: config.adminToken,
+  masterKey: config.masterKey,
   logger,
 });
 

@@ -1,6 +1,7 @@
 import { AgentGateError, newId } from '@agentgate/shared';
 import { z } from 'zod';
 import type { PrismaClient } from '../db.js';
+import { DEFAULT_PAGE_SIZE, olderThan, pageOf, type Page, type PageAnchor } from '../pagination.js';
 
 /**
  * How long a granted approval stays usable (SPEC D7).
@@ -72,6 +73,10 @@ export interface ApprovalView {
 export interface ApprovalListFilter {
   status?: ApprovalStatus | undefined;
   missionId?: string | undefined;
+  /** Defaults to {@link DEFAULT_PAGE_SIZE}. The caller-facing cap lives at the route. */
+  limit?: number | undefined;
+  /** The id of the last approval of the previous page. */
+  cursor?: string | undefined;
 }
 
 export interface ApprovalService {
@@ -85,7 +90,8 @@ export interface ApprovalService {
   deny(id: string, decidedBy: string): Promise<ApprovalView>;
   tryConsume(id: string, binding: ApprovalBinding): Promise<ConsumeOutcome>;
   get(id: string): Promise<ApprovalView | null>;
-  list(filter: ApprovalListFilter): Promise<ApprovalView[]>;
+  /** Newest first, one page at a time. See {@link olderThan} for what a cursor means. */
+  list(filter: ApprovalListFilter): Promise<Page<ApprovalView>>;
 }
 
 /**
@@ -372,19 +378,40 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
     },
 
     async list(filter) {
+      const limit = filter.limit ?? DEFAULT_PAGE_SIZE;
+
+      let anchor: PageAnchor | undefined;
+      if (filter.cursor !== undefined) {
+        const row = await findById(filter.cursor);
+
+        if (row === null) {
+          // A cursor naming no row would quietly answer with the first page again, which reads
+          // as "the queue restarted" to whoever is paging through it.
+          throw new AgentGateError(
+            'agentgate_validation_error',
+            400,
+            `cursor ${filter.cursor} names no approval`,
+          );
+        }
+
+        anchor = { at: row.requestedAt, id: row.id };
+      }
+
       const rows = await prisma.approval.findMany({
         where: {
           ...(filter.missionId === undefined ? {} : { missionId: filter.missionId }),
           ...(filter.status === undefined ? {} : { status: filter.status }),
+          ...(anchor === undefined ? {} : olderThan('requestedAt', anchor)),
         },
         // Newest first: an approval queue is read from the top, and the id breaks the tie
-        // between two requests the clock cannot separate. The cap is what stands in for
-        // pagination until something needs it — it drops the oldest, never the newest.
+        // between two requests the clock cannot separate.
         orderBy: [{ requestedAt: 'desc' }, { id: 'desc' }],
-        take: 200,
+        take: limit + 1,
       });
 
-      return rows.map(toView);
+      const page = pageOf(rows, limit);
+
+      return { items: page.items.map(toView), nextCursor: page.nextCursor };
     },
   };
 }

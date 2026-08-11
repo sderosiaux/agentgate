@@ -98,9 +98,18 @@ model AuditEvent {
   bodySize      Int?
   bodyHash      String?
   contentType   String?
+  /// The PolicyInput the engine was actually asked, for the runtime-decision view. Null on
+  /// every attempt refused before the engine was reached. Redacted by construction: no
+  /// headers, no body, no credential — see `audit/recorder.ts`.
+  policyInputSnapshot Json?
 
   @@index([missionId, timestamp])
   @@index([decision, timestamp])
+  // The management audit list filters on these too, and `GET /decisions/:requestId` is a
+  // lookup by request id on a table that only ever grows.
+  @@index([agentId, timestamp])
+  @@index([principalId, timestamp])
+  @@index([requestId])
 }
 
 model UsageCounter {

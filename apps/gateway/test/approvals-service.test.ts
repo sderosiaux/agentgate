@@ -385,10 +385,21 @@ test('the list is filtered by status and by mission, newest first', async () => 
   });
 
   const all = await service.list({ missionId });
-  expect(all.map((approval) => approval.id)).toEqual([second.approvalId, first.approvalId]);
+  expect(all.items.map((approval) => approval.id)).toEqual([second.approvalId, first.approvalId]);
+  expect(all.nextCursor).toBeNull();
 
   const approved = await service.list({ missionId, status: 'approved' });
-  expect(approved.map((approval) => approval.id)).toEqual([first.approvalId]);
+  expect(approved.items.map((approval) => approval.id)).toEqual([first.approvalId]);
 
-  expect(await service.list({ missionId: 'mis_nobody' })).toEqual([]);
+  expect(await service.list({ missionId: 'mis_nobody' })).toEqual({ items: [], nextCursor: null });
+
+  // One page at a time, and the cursor is what makes the second page start where the first
+  // stopped rather than at the top again.
+  const firstPage = await service.list({ missionId, limit: 1 });
+  expect(firstPage.items.map((approval) => approval.id)).toEqual([second.approvalId]);
+  expect(firstPage.nextCursor).toBe(second.approvalId);
+
+  const secondPage = await service.list({ missionId, limit: 1, cursor: firstPage.nextCursor ?? '' });
+  expect(secondPage.items.map((approval) => approval.id)).toEqual([first.approvalId]);
+  expect(secondPage.nextCursor).toBeNull();
 });

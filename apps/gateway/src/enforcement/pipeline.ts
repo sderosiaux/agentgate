@@ -20,7 +20,7 @@ import {
 } from '@agentgate/shared';
 import { z } from 'zod';
 import type { ApprovalService, ConsumeOutcome } from '../approvals/service.js';
-import type { AuditDecision, AuditRecorder } from '../audit/recorder.js';
+import type { AuditDecision, AuditRecorder, PolicyInputSnapshot } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
 import { parseBearer } from '../http/bearer.js';
 import type { SecretStore } from '../secrets/index.js';
@@ -183,6 +183,12 @@ interface Attempt {
    * refused otherwise: reading a trail is asking "why", and `null` is not an answer.
    */
   matchedPolicy?: string;
+  /**
+   * The question the engine was asked, kept for the runtime-decision view. Set only once the
+   * pipeline has actually built a `PolicyInput`: an attempt refused before that has no snapshot,
+   * and a half-built one would be a lie about what was evaluated.
+   */
+  policyInputSnapshot?: PolicyInputSnapshot;
 }
 
 function denied(
@@ -531,6 +537,12 @@ async function execute(
     },
   };
 
+  // Recorded before the verdict, so a policy engine that throws still leaves the trail saying
+  // what it was asked. `PolicyInput` is already free of headers, bodies and credentials (D10) —
+  // the mission documents in it are admin-authored scope, which is the thing an operator
+  // reading a decision a week later most needs to see as it was at the time.
+  attempt.policyInputSnapshot = input;
+
   const verdict = await deps.engine.evaluate(input);
   if (verdict.matchedPolicy !== undefined) {
     attempt.matchedPolicy = verdict.matchedPolicy;
@@ -716,6 +728,7 @@ export async function handleProxyRequest(
       bodySize: attempt.bodySize ?? null,
       bodyHash: attempt.bodyHash ?? null,
       contentType: attempt.contentType ?? null,
+      policyInputSnapshot: attempt.policyInputSnapshot ?? null,
     });
   }
 }
