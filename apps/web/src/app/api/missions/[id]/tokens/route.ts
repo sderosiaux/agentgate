@@ -10,10 +10,10 @@ import { runAction } from '@/lib/route-handler';
  * dies; the token itself reaches the agent through the SDK.
  */
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params;
 
-  return runAction(() => api.mintToken(id));
+  return runAction(request, () => api.mintToken(id));
 }
