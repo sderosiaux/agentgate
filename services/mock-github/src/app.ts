@@ -1,5 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
-import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, {
+  LogController,
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from 'fastify';
 import {
   createdPullRequest,
   paymentsIssue423,
@@ -105,6 +110,23 @@ export function buildMockGithub(options: MockGithubOptions): FastifyInstance {
   app.delete('/repos/acme/payments', async (_request, reply) => reply.code(204).send());
 
   app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ message: 'Not Found' }));
+
+  app.setErrorHandler(async (error: FastifyError, request, reply) => {
+    const statusCode = error.statusCode ?? 500;
+
+    // A malformed body is the caller's problem and its own status code says so;
+    // flattening it into a 500 would just make the demo harder to read.
+    if (statusCode < 500) {
+      return reply.code(statusCode).send({ message: error.message });
+    }
+
+    // `err` only: the request carries the credential, and the default handler
+    // would otherwise return the raw failure to a caller who must learn nothing
+    // about this service's internals.
+    request.log.error({ err: error }, 'request failed');
+
+    return reply.code(500).send({ message: 'Internal Server Error' });
+  });
 
   return app;
 }
