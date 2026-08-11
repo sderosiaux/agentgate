@@ -2,7 +2,9 @@ import { AgentGateError } from '@agentgate/shared';
 import { z } from 'zod';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../pagination.js';
 
-export { olderThan, pageOf, type Page, type PageAnchor } from '../pagination.js';
+// Re-exported so a route file has one place to import from: the zod query fields below and the
+// keyset helpers are two halves of the same feature.
+export { olderThan, pageOf } from '../pagination.js';
 
 /** Bounds on every identifier a caller may hand this API. Ours are 24 characters. */
 export const MAX_ID_LENGTH = 128;

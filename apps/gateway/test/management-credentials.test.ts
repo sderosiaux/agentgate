@@ -5,12 +5,15 @@ import { MASTER_KEY, startHarness, type Harness } from './helpers/gateway.js';
 
 const started: Harness[] = [];
 const createdAliases: string[] = [];
+/** What the create calls answered, kept so the deep scan covers writes as well as reads. */
+const createResponses: string[] = [];
 
 afterEach(async () => {
   for (const harness of started) {
     await harness.prisma.credential.deleteMany({ where: { alias: { in: createdAliases } } });
   }
   createdAliases.length = 0;
+  createResponses.length = 0;
 
   await Promise.all(started.splice(0).map(async (harness) => harness.close()));
 });
@@ -48,6 +51,7 @@ async function createSentinel(harness: Harness): Promise<string> {
     body: credentialBody(alias),
   });
   expect(response.statusCode).toBe(201);
+  createResponses.push(response.body);
 
   return alias;
 }
@@ -113,7 +117,7 @@ test('no management response and no published document carries the credential va
   ).filter(([, operations]) => 'get' in operations);
   expect(paths.length).toBeGreaterThan(5);
 
-  const scanned: string[] = [document.body];
+  const scanned: string[] = [document.body, ...createResponses];
 
   for (const [path] of paths) {
     const url = path
