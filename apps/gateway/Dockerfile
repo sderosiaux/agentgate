@@ -21,6 +21,10 @@ COPY services/mock-github/package.json services/mock-github/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY apps/gateway apps/gateway
 COPY packages packages
+# The gateway's integration tests run the mock upstream in-process, so it is a workspace
+# dependency of the gateway and `...` selects it for the build below. Its sources have to be
+# here for that build to succeed — it is compiled, never started, by this image.
+COPY services services
 # `@agentgate/gateway...` builds the gateway and its workspace dependencies, in order.
 RUN pnpm --filter @agentgate/gateway exec prisma generate \
     && pnpm --filter "@agentgate/gateway..." build

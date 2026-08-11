@@ -10,6 +10,12 @@ function requestId(): string {
   return `req_${randomUUID()}`;
 }
 
+/**
+ * Ids of this run's own, never the demo mission's: the trail is append-only, so a test that
+ * borrowed `mis_demo` would leave rows nobody can tell from a real request forever.
+ */
+const RUN = randomUUID().replaceAll('-', '').slice(0, 12);
+
 afterAll(async () => {
   await prisma.$disconnect();
 });
@@ -19,9 +25,9 @@ test('a full row survives the round trip', async () => {
 
   await recorder.record({
     requestId: id,
-    principalId: 'pri_stephane',
-    agentId: 'agt_demo',
-    missionId: 'mis_demo',
+    principalId: `pri_test_${RUN}`,
+    agentId: `agt_test_${RUN}`,
+    missionId: `mis_test_${RUN}`,
     resource: 'github:acme/payments',
     action: 'repo.read',
     method: 'GET',

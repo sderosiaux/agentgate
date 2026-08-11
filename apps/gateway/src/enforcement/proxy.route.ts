@@ -28,6 +28,17 @@ export function createProxyRoutes(deps: PipelineDeps): FastifyPluginAsync {
         request.body,
       );
 
+      // One line per attempt, matching the audit row it was written next to: the trail is for
+      // reading later, the log is for watching now. Neither carries a header or a body.
+      request.log.info(
+        {
+          decision: outcome.decision,
+          reason: outcome.reason,
+          status: outcome.status,
+        },
+        'proxy attempt',
+      );
+
       // The one header the gateway adds to an upstream response: it is what ties what the agent
       // got to the audit row explaining why it got it.
       void reply

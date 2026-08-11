@@ -84,6 +84,9 @@ export interface ProxyOutcome {
   /** An upstream body, verbatim, or an `AgentGateErrorBody`. */
   body: string | object;
   requestId: string;
+  /** What the trail says about this attempt, so the caller can log it without re-deriving it. */
+  decision: AuditDecision;
+  reason: string;
 }
 
 /**
@@ -125,8 +128,6 @@ interface Attempt {
    * refused otherwise: reading a trail is asking "why", and `null` is not an answer.
    */
   matchedPolicy?: string;
-  /** The engine's own words, kept so an ALLOW row says why rather than only that. */
-  decisionReason?: string;
 }
 
 function denied(
@@ -167,10 +168,18 @@ function headerValue(
  * D10: the decision sees metadata about the body, never the body. A future DLP stage is the
  * thing that would look inside, and it slots in here without changing the contract.
  */
+/** Long enough for any real media type, short enough that the trail cannot be used as storage. */
+const MAX_CONTENT_TYPE_LENGTH = 128;
+
 function describeBody(
   request: ProxyRequestBody,
 ): Pick<Attempt, 'bodySize' | 'bodyHash' | 'contentType'> {
-  const contentType = headerValue(request.headers, 'content-type');
+  // The header comes from the request body, where nothing bounds its length: the audit column
+  // does not, either, and an append-only table is a poor place to let a caller write freely.
+  const contentType = headerValue(request.headers, 'content-type')?.slice(
+    0,
+    MAX_CONTENT_TYPE_LENGTH,
+  );
 
   if (request.body === undefined) {
     return { bodySize: 0, ...(contentType === undefined ? {} : { contentType }) };
@@ -387,7 +396,6 @@ async function execute(
   if (verdict.matchedPolicy !== undefined) {
     attempt.matchedPolicy = verdict.matchedPolicy;
   }
-  attempt.decisionReason = verdict.reason;
 
   if (verdict.decision === 'DENY') {
     throw new AgentGateError('agentgate_access_denied', 403, verdict.reason, {
@@ -433,6 +441,8 @@ async function execute(
     headers: response.headers,
     body: response.body,
     requestId: attempt.requestId,
+    decision: 'ALLOW',
+    reason: verdict.reason,
   };
 }
 
@@ -457,8 +467,8 @@ export async function handleProxyRequest(
 
   try {
     outcome = await execute(deps, attempt, authorization, rawBody);
-    decision = 'ALLOW';
-    reason = attempt.decisionReason ?? 'request forwarded to the upstream';
+    decision = outcome.decision;
+    reason = outcome.reason;
 
     return outcome;
   } catch (error) {
@@ -477,6 +487,8 @@ export async function handleProxyRequest(
       headers: {},
       body: failure.toBody(requestId),
       requestId,
+      decision,
+      reason,
     };
 
     return outcome;

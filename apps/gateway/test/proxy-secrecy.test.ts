@@ -72,6 +72,22 @@ test('a credential embedded in an error message is scrubbed out of the log line'
   expect(written).toContain('[REDACTED]');
 });
 
+test('each attempt logs its decision, and no header or body alongside it', async () => {
+  harness = await startHarness();
+  const token = await harness.mint();
+
+  await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
+
+  const attempts = harness.logLines
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((line) => line['msg'] === 'proxy attempt');
+
+  expect(attempts).toHaveLength(1);
+  expect(attempts[0]).toMatchObject({ decision: 'ALLOW', status: 200 });
+  expect(Object.keys(attempts[0] ?? {})).not.toContain('headers');
+  expect(Object.keys(attempts[0] ?? {})).not.toContain('body');
+});
+
 test('a failed request logs the refusal without the credential or the agent token', async () => {
   harness = await startHarness({ upstreamBaseUrl: 'http://127.0.0.1:1' });
   const token = await harness.mint();
