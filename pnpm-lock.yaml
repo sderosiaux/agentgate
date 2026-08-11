@@ -17,6 +17,12 @@ importers:
 
   apps/gateway:
     dependencies:
+      '@agentgate/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@agentgate/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@agentgate/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -29,10 +35,16 @@ importers:
       fastify:
         specifier: ^5.11.3
         version: 5.11.3
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@agentgate/mock-github':
+        specifier: workspace:*
+        version: link:../../services/mock-github
       '@types/node':
         specifier: ^22.19.2
         version: 22.20.1

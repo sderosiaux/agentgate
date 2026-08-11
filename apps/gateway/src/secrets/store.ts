@@ -1,4 +1,5 @@
 import type { PrismaClient } from '../db.js';
+import { registerSensitive } from '../logging.js';
 import { assertMasterKey, decryptSecret } from './crypto.js';
 import { InjectionSpecSchema, type InjectionSpec } from './injection.js';
 
@@ -79,10 +80,13 @@ export function createDbSecretStore(prisma: PrismaClient, masterKeyB64: string):
         injection: parseInjection(row.alias, row.injection),
       };
 
-      return resolveCredential(
-        descriptor,
-        decryptSecret(masterKeyB64, Buffer.from(row.ciphertext)),
-      );
+      const value = decryptSecret(masterKeyB64, Buffer.from(row.ciphertext));
+
+      // From here on the plaintext exists in this process, so the log scrubber has to know it
+      // before any code holding it gets a chance to log something.
+      registerSensitive(value);
+
+      return resolveCredential(descriptor, value);
     },
   };
 }

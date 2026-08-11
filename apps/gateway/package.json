@@ -8,20 +8,24 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run",
+    "typecheck": "pnpm --filter \"@agentgate/gateway^...\" build && tsc -p tsconfig.test.json",
+    "test": "pnpm --filter \"@agentgate/gateway^...\" build && vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:seed": "prisma db seed"
   },
   "dependencies": {
+    "@agentgate/auth": "workspace:*",
+    "@agentgate/policy": "workspace:*",
     "@agentgate/shared": "workspace:*",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "fastify": "^5.11.3",
+    "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@agentgate/mock-github": "workspace:*",
     "@types/node": "^22.19.2",
     "dotenv": "^17.4.2",
     "jose": "^6.2.8",
