@@ -301,6 +301,54 @@ test('a HEAD request maps to no action, so it is denied', async () => {
   expect(response.json()).toMatchObject({ error: 'agentgate_unmapped_action' });
 });
 
+test('unknown, revoked and out-of-scope aliases are indistinguishable to the agent', async () => {
+  // Three different server-side facts, one answer. Telling them apart would confirm which
+  // aliases exist and which are still active — an oracle an agent has no business holding.
+  // The alias and the request id are the two things that legitimately differ between the runs:
+  // the agent chose the first and the gateway minted the second. Everything else must match.
+  async function refusal(current: Harness, alias: string): Promise<string> {
+    const response = await current.proxy(
+      { credential: alias, ...READ_PAYMENTS },
+      await current.mint(),
+    );
+
+    expect(response.statusCode).toBe(403);
+
+    return response.body
+      .replaceAll(alias, 'ALIAS')
+      .replace(/"request_id":"[^"]+"/, '"request_id":"REQ"');
+  }
+
+  const anyHost = { network: { allow: [{ host: '*' }], deny: [] } };
+  const bodies: string[] = [];
+
+  // An alias nobody ever created.
+  harness = await startHarness(anyHost);
+  bodies.push(await refusal(harness, 'no_such_alias'));
+  await harness.close();
+
+  // An alias that exists and has been revoked.
+  harness = await startHarness({ ...anyHost, credentialStatus: 'revoked' });
+  bodies.push(await refusal(harness, harness.alias));
+  await harness.close();
+
+  // An alias that exists, is active, and names a different host — left open for afterEach.
+  harness = await startHarness({ ...anyHost, logicalHost: 'api.gitlab.com' });
+  bodies.push(await refusal(harness, harness.alias));
+
+  expect(new Set(bodies).size).toBe(1);
+  expect(bodies[0]).toContain('agentgate_unknown_credential');
+});
+
+test('the trail still tells the three credential refusals apart, server-side', async () => {
+  harness = await startHarness({ credentialStatus: 'revoked' });
+  const token = await harness.mint();
+
+  await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
+
+  expect((await auditRow(harness))[0]?.matchedPolicy).toBe('credential-unknown');
+});
+
 test('an unknown credential alias is refused', async () => {
   harness = await startHarness();
   const token = await harness.mint();

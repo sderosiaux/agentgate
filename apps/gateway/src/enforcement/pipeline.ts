@@ -142,6 +142,13 @@ function denied(
   throw new AgentGateError(code, 403, reason, { decision: 'DENY' });
 }
 
+/**
+ * The single answer to every way a credential can fail to be usable: absent, revoked, or
+ * scoped to another host. One wording, so an agent cannot tell which of the three it hit and
+ * turn the gateway into a directory of the aliases that exist.
+ */
+const CREDENTIAL_REFUSAL = (alias: string): string => `credential ${alias} is unknown`;
+
 function bearerToken(header: string | undefined): string {
   const token = /^bearer (.+)$/i.exec(header?.trim() ?? '')?.[1];
 
@@ -165,13 +172,13 @@ function headerValue(
   return undefined;
 }
 
+/** Long enough for any real media type, short enough that the trail cannot be used as storage. */
+const MAX_CONTENT_TYPE_LENGTH = 128;
+
 /**
  * D10: the decision sees metadata about the body, never the body. A future DLP stage is the
  * thing that would look inside, and it slots in here without changing the contract.
  */
-/** Long enough for any real media type, short enough that the trail cannot be used as storage. */
-const MAX_CONTENT_TYPE_LENGTH = 128;
-
 function describeBody(
   request: ProxyRequestBody,
 ): Pick<Attempt, 'bodySize' | 'bodyHash' | 'contentType'> {
@@ -324,17 +331,21 @@ async function execute(
     denied(
       attempt,
       'credential-unknown',
-      `credential ${request.credential} is unknown`,
+      CREDENTIAL_REFUSAL(request.credential),
       'agentgate_unknown_credential',
     );
   }
   if (credential.logicalHost.toLowerCase() !== normalized.host) {
     // The credential names the host it may be used against (D2): an alias for GitHub cannot
     // be pointed at another service by writing a different url.
+    //
+    // Same words as the two refusals above, on purpose. "Cannot be used for this host" would
+    // confirm that the alias exists and is active, which is a question an agent gets to ask
+    // once per guess. The trail keeps the three cases apart; the agent sees one answer.
     denied(
       attempt,
       'credential-host-scope',
-      `credential ${request.credential} cannot be used for ${normalized.host}`,
+      CREDENTIAL_REFUSAL(request.credential),
       'agentgate_unknown_credential',
     );
   }
@@ -434,7 +445,7 @@ async function execute(
     denied(
       attempt,
       'credential-revoked',
-      `credential ${request.credential} is unknown`,
+      CREDENTIAL_REFUSAL(request.credential),
       'agentgate_unknown_credential',
     );
   }
