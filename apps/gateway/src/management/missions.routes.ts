@@ -139,7 +139,9 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
         if (agent.principalId !== body.principalId) {
           // The mission would name an identity pair the token check later refuses on every
           // request (D9): better to be unable to create it than to create a dead one.
-          throw badRequest(`agent ${body.agentId} does not belong to principal ${body.principalId}`);
+          throw badRequest(
+            `agent ${body.agentId} does not belong to principal ${body.principalId}`,
+          );
         }
 
         const expiresAt = new Date(body.expiresAt);

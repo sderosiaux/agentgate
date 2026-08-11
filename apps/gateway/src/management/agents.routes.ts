@@ -103,11 +103,16 @@ export function createAgentRoutes(deps: ManagementDeps): FastifyPluginAsyncZod {
       },
       async (request) => {
         const agents = await deps.prisma.agent.findMany({
-          where: request.query.principalId === undefined ? {} : { principalId: request.query.principalId },
+          where:
+            request.query.principalId === undefined
+              ? {}
+              : { principalId: request.query.principalId },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         });
 
-        return { agents: agents.map((agent) => ({ ...agent, createdAt: agent.createdAt.toISOString() })) };
+        return {
+          agents: agents.map((agent) => ({ ...agent, createdAt: agent.createdAt.toISOString() })),
+        };
       },
     );
 

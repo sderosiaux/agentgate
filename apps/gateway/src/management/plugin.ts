@@ -53,7 +53,10 @@ function validationRefusal(error: {
   const where = error.validationContext ?? 'request';
   const issues = error.validation
     .map((issue) => {
-      const at = issue.instancePath === undefined || issue.instancePath === '/' ? '' : `${issue.instancePath}: `;
+      const at =
+        issue.instancePath === undefined || issue.instancePath === '/'
+          ? ''
+          : `${issue.instancePath}: `;
 
       return `${at}${issue.message ?? 'invalid'}`;
     })

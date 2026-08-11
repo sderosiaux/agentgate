@@ -399,7 +399,11 @@ test('the list is filtered by status and by mission, newest first', async () => 
   expect(firstPage.items.map((approval) => approval.id)).toEqual([second.approvalId]);
   expect(firstPage.nextCursor).toBe(second.approvalId);
 
-  const secondPage = await service.list({ missionId, limit: 1, cursor: firstPage.nextCursor ?? '' });
+  const secondPage = await service.list({
+    missionId,
+    limit: 1,
+    cursor: firstPage.nextCursor ?? '',
+  });
   expect(secondPage.items.map((approval) => approval.id)).toEqual([first.approvalId]);
   expect(secondPage.nextCursor).toBeNull();
 });

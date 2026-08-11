@@ -109,7 +109,10 @@ export function createApprovalManagementRoutes(deps: ManagementDeps): FastifyPlu
       },
       async (request) =>
         toJson(
-          await deps.approvals.approve(request.params.id, request.body?.decidedBy ?? ANONYMOUS_ADMIN),
+          await deps.approvals.approve(
+            request.params.id,
+            request.body?.decidedBy ?? ANONYMOUS_ADMIN,
+          ),
         ),
     );
 

@@ -4,7 +4,11 @@ import { errorResponses } from './common.js';
 import type { ManagementDeps } from './deps.js';
 
 const OverviewSchema = z.object({
-  activeAgents: z.number().int().nonnegative().describe('Agents holding a mission that is live now'),
+  activeAgents: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Agents holding a mission that is live now'),
   activeMissions: z.number().int().nonnegative(),
   requestsToday: z.number().int().nonnegative(),
   allowedToday: z.number().int().nonnegative(),
@@ -56,7 +60,9 @@ export function createStatsRoutes(deps: ManagementDeps): FastifyPluginAsyncZod {
             deps.prisma.auditEvent.count({
               where: { timestamp: { gte: since }, decision: 'ALLOW' },
             }),
-            deps.prisma.auditEvent.count({ where: { timestamp: { gte: since }, decision: 'DENY' } }),
+            deps.prisma.auditEvent.count({
+              where: { timestamp: { gte: since }, decision: 'DENY' },
+            }),
             deps.prisma.approval.count({ where: { status: 'pending' } }),
           ]);
 
