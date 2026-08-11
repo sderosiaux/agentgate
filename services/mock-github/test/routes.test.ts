@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildMockGithub } from '../src/app.js';
-import { paymentsIssue423, PULL_REQUEST_NUMBER } from '../src/fixtures.js';
+// Imported through the package entry point on purpose: this is the path the
+// gateway integration tests take to assert against the fixtures.
+import { buildMockGithub, paymentsIssue423, PULL_REQUEST_NUMBER } from '../src/app.js';
 
 const TOKEN = 'test-github-token';
 const auth = { authorization: `Bearer ${TOKEN}` };

@@ -12,6 +12,10 @@ import {
   secretProjectRepo,
 } from './fixtures.js';
 
+// The package entry point is app.ts, so the fixtures travel with it: the gateway
+// integration tests assert against these exact payloads.
+export * from './fixtures.js';
+
 export interface MockGithubOptions extends FastifyServerOptions {
   /** Bearer token every route requires. Never logged, never echoed back. */
   token: string;
