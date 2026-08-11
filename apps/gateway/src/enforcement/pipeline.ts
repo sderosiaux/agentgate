@@ -19,8 +19,10 @@ import {
   type NetworkRules,
 } from '@agentgate/shared';
 import { z } from 'zod';
+import type { ApprovalService, ConsumeOutcome } from '../approvals/service.js';
 import type { AuditDecision, AuditRecorder } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
+import { parseBearer } from '../http/bearer.js';
 import type { SecretStore } from '../secrets/index.js';
 import { applyInjection } from '../secrets/index.js';
 import { forward, UpstreamResponseTooLarge } from './forwarder.js';
@@ -57,8 +59,8 @@ const ProxyRequestSchema = z.strictObject({
   url: z.string().min(1).max(MAX_URL_LENGTH),
   headers: z.record(z.string(), z.string()).optional(),
   body: z.string().optional(),
-  /** Plan 07. Accepted by the contract today, and not yet consumed by anything. */
-  approvalId: z.string().optional(),
+  /** The grant a human issued, carried by the retry of a request that needed one (D7). */
+  approvalId: z.string().min(1).max(MAX_ALIAS_LENGTH).optional(),
 });
 
 export type ProxyRequestBody = z.infer<typeof ProxyRequestSchema>;
@@ -119,6 +121,7 @@ export interface PipelineDeps {
   secretStore: SecretStore;
   engine: PolicyEngine;
   adapters: ProviderAdapter[];
+  approvals: ApprovalService;
   audit: AuditRecorder;
   /** Injected so mission expiry is a decision about a time, not about the wall clock. */
   clock: () => Date;
@@ -171,6 +174,11 @@ interface Attempt {
   bodySize?: number;
   bodyHash?: string;
   /**
+   * The approval this attempt was about: the grant it presented, or the pending record it was
+   * told to go and get approved. Either way it is what ties the trail to a human decision.
+   */
+  approvalId?: string;
+  /**
    * Which rule decided. From the engine when it got that far, and from the pipeline stage that
    * refused otherwise: reading a trail is asking "why", and `null` is not an answer.
    */
@@ -195,8 +203,40 @@ function denied(
  */
 const CREDENTIAL_REFUSAL = (alias: string): string => `credential ${alias} is unknown`;
 
+/**
+ * How a grant that did not apply is written down. Five tags rather than one, because "the
+ * approval did not work" is the least useful sentence an operator can be handed: reuse of a
+ * spent grant, a grant borrowed from another action and a grant nobody ever approved are three
+ * different events, and only one of them is somebody making an honest mistake.
+ */
+const CONSUME_POLICY: Record<Exclude<ConsumeOutcome, 'consumed'>, string> = {
+  already_consumed: 'approval-consumed',
+  expired: 'approval-expired',
+  mismatch: 'approval-mismatch',
+  not_approved: 'approval-not-approved',
+  not_found: 'approval-unknown',
+};
+
+/**
+ * What the agent is told. An id that names nothing and an id that names someone else's approval
+ * get the same sentence, on purpose: the difference is the answer to "does this approval exist",
+ * which is a question the trail may answer and a caller may not.
+ */
+function consumeRefusal(outcome: Exclude<ConsumeOutcome, 'consumed'>, id: string): string {
+  switch (outcome) {
+    case 'already_consumed':
+      return `approval ${id} has already been used`;
+    case 'expired':
+      return `approval ${id} has expired`;
+    case 'not_approved':
+      return `approval ${id} has not been approved`;
+    default:
+      return `approval ${id} does not authorise this request`;
+  }
+}
+
 function bearerToken(header: string | undefined): string {
-  const token = /^bearer (.+)$/i.exec(header?.trim() ?? '')?.[1];
+  const token = parseBearer(header);
 
   if (token === undefined) {
     throw new AgentGateError('agentgate_invalid_token', 401, 'Agent token is missing');
@@ -496,12 +536,50 @@ async function execute(
   }
 
   if (verdict.decision === 'REQUIRE_APPROVAL') {
-    // SEAM FOR PLAN 07 — the approval record, its TTL and the single-use consumption of
-    // `request.approvalId` all land here. Today the agent is told to ask a human, and no
-    // record is written: an approval that cannot yet be granted must not look pending.
-    throw new AgentGateError('agentgate_approval_required', 202, verdict.reason, {
-      decision: 'REQUIRE_APPROVAL',
-    });
+    // D7, and the only thing this step does: turn "a human must say yes" into either a grant
+    // being spent or a question being asked. Everything below is untouched — a consumed grant
+    // continues down the ALLOW path, which is what makes an approval a permission for exactly
+    // one request rather than a second, parallel way to reach the upstream.
+    const binding = {
+      missionId: mission.id,
+      agentId: claims.agentId,
+      resource: mapped.resource,
+      action: mapped.action,
+    };
+
+    if (request.approvalId !== undefined) {
+      // Recorded before the outcome is known: a grant that turns out to be spent, expired or
+      // someone else's is exactly the attempt an operator needs to find by approval id.
+      attempt.approvalId = request.approvalId;
+
+      const outcome = await deps.approvals.tryConsume(request.approvalId, binding);
+
+      if (outcome !== 'consumed') {
+        // No new pending record here. A failed consume is an agent holding something it cannot
+        // use; answering it by queueing a fresh question for a human turns a refusal into a
+        // retry loop that costs somebody attention.
+        denied(attempt, CONSUME_POLICY[outcome], consumeRefusal(outcome, request.approvalId));
+      }
+
+      attempt.matchedPolicy = 'approval-grant';
+    } else {
+      const { approvalId } = await deps.approvals.createPending({
+        ...binding,
+        reason: verdict.reason,
+        requestSummary: {
+          method: request.method,
+          host: normalized.host,
+          path: normalized.path,
+          ...(attempt.bodySize === undefined ? {} : { bodySize: attempt.bodySize }),
+          ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
+        },
+      });
+      attempt.approvalId = approvalId;
+
+      throw new AgentGateError('agentgate_approval_required', 202, verdict.reason, {
+        decision: 'REQUIRE_APPROVAL',
+      });
+    }
   }
 
   // 9 — allowed, and only now does a plaintext credential exist in this process.
@@ -590,10 +668,16 @@ export async function handleProxyRequest(
 
     decision = AUDIT_DECISION_BY_CODE[failure.code];
     reason = failure.message;
+    const body = failure.toBody(requestId);
     outcome = {
       status: failure.httpStatus,
       headers: {},
-      body: failure.toBody(requestId),
+      // The one refusal that hands something back: the id of the approval a human now has to
+      // decide, without which a 202 is an instruction the agent cannot act on.
+      body:
+        failure.code === 'agentgate_approval_required' && attempt.approvalId !== undefined
+          ? { ...body, approval_id: attempt.approvalId }
+          : body,
       requestId,
       decision,
       reason,
@@ -618,6 +702,7 @@ export async function handleProxyRequest(
       destHost: attempt.destHost ?? null,
       destPath: attempt.destPath ?? null,
       matchedPolicy: attempt.matchedPolicy ?? null,
+      approvalId: attempt.approvalId ?? null,
       httpStatus: outcome?.status ?? null,
       bodySize: attempt.bodySize ?? null,
       bodyHash: attempt.bodyHash ?? null,

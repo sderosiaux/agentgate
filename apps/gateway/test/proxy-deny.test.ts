@@ -393,39 +393,8 @@ test('a credential cannot be pointed at a host it does not name', async () => {
   expect((await auditRow(harness))[0]?.matchedPolicy).toBe('credential-host-scope');
 });
 
-test('an action gated behind an approval answers 202 and writes no approval record', async () => {
-  harness = await startHarness();
-  const token = await harness.mint();
-
-  const response = await harness.proxy(
-    {
-      credential: harness.alias,
-      method: 'POST',
-      url: 'https://api.github.com/repos/acme/payments/pulls',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"title":"Fix duplicate charges"}',
-    },
-    token,
-  );
-
-  expect(response.statusCode).toBe(202);
-  expect(response.json()).toMatchObject({
-    error: 'agentgate_approval_required',
-    decision: 'REQUIRE_APPROVAL',
-  });
-  expect(harness.upstreamRequests).toHaveLength(0);
-  expect(await harness.prisma.approval.count({ where: { missionId: harness.missionId } })).toBe(0);
-
-  const [row] = await auditRow(harness);
-  expect(row).toMatchObject({
-    decision: 'REQUIRE_APPROVAL',
-    action: 'pull_request.create',
-    matchedPolicy: 'mission-approval-required',
-    bodySize: 33,
-    contentType: 'application/json',
-  });
-  expect(row?.bodyHash).toMatch(/^[0-9a-f]{64}$/);
-});
+// A gated action answers 202 and leaves a pending record for a human: the whole of that flow,
+// including what the record says and what happens on the retry, lives in approvals-flow.test.ts.
 
 test.each([
   ['not a url at all', 'repos/acme/payments'],

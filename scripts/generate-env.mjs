@@ -23,6 +23,9 @@ function generateSecrets() {
       .export({ type: 'pkcs8', format: 'der' })
       .toString('base64'),
     AGENTGATE_JWT_PUBLIC_KEY: publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+    // Guards the management API, which is what turns a REQUIRE_APPROVAL into a request that
+    // goes through: shipping the committed dev value would be shipping an open approve button.
+    ADMIN_TOKEN: randomBytes(32).toString('base64url'),
   };
 }
 

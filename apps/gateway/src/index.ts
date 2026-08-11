@@ -1,6 +1,7 @@
 import { createTokenService } from '@agentgate/auth';
 import { createBuiltinEngine, createOpaEngine, githubAdapter } from '@agentgate/policy';
 import { buildApp } from './app.js';
+import { createApprovalService } from './approvals/service.js';
 import { createAuditRecorder } from './audit/recorder.js';
 import { loadGatewayConfig, type GatewayConfig } from './config.js';
 import { createPrismaClient } from './db.js';
@@ -26,6 +27,7 @@ try {
 
 const logger = createLogger();
 const prisma = createPrismaClient(config.databaseUrl);
+const clock = (): Date => new Date();
 
 const app = buildApp({
   prisma,
@@ -34,9 +36,11 @@ const app = buildApp({
   engine:
     config.policyEngine === 'opa' ? createOpaEngine(config.opaUrl ?? '') : createBuiltinEngine(),
   adapters: [githubAdapter],
+  approvals: createApprovalService(prisma, clock),
   audit: createAuditRecorder(prisma),
-  clock: () => new Date(),
+  clock,
   environment: config.environment,
+  adminToken: config.adminToken,
   logger,
 });
 

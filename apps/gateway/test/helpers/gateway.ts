@@ -5,6 +5,7 @@ import { createBuiltinEngine, githubAdapter, type PolicyEngine } from '@agentgat
 import type { MissionLimits, MissionPermissions, NetworkRules } from '@agentgate/shared';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
+import { createApprovalService, type ApprovalService } from '../../src/approvals/service.js';
 import { createPrismaClient, type PrismaClient } from '../../src/db.js';
 import { createAuditRecorder } from '../../src/audit/recorder.js';
 import { createLogger } from '../../src/logging.js';
@@ -12,6 +13,9 @@ import { createDbSecretStore, encryptSecret, type InjectionSpec } from '../../sr
 
 /** Long enough to be registered by the log scrubber, and unmistakable in a grep. */
 export const UPSTREAM_TOKEN = 'harness-upstream-secret-token';
+
+/** What the management tree is guarded by for the duration of a test. */
+export const ADMIN_TOKEN = 'harness-admin-token';
 
 export const MASTER_KEY = Buffer.alloc(32, 0x5c).toString('base64');
 
@@ -77,6 +81,7 @@ export interface Harness {
   app: FastifyInstance;
   prisma: PrismaClient;
   tokenService: TokenService;
+  approvals: ApprovalService;
   principalId: string;
   agentId: string;
   missionId: string;
@@ -88,6 +93,14 @@ export interface Harness {
   clock: { now: Date };
   mint(claims?: Partial<AgentClaims>, expiresAt?: Date): Promise<string>;
   proxy(body: unknown, token: string | undefined): Promise<InjectedResponse>;
+  /** The agent-facing read of an approval, with the agent's own token by default. */
+  approvalStatus(approvalId: string, token: string): Promise<InjectedResponse>;
+  /** A call on the management tree, with the harness admin token unless another is given. */
+  admin(
+    method: 'GET' | 'POST',
+    url: string,
+    options?: { body?: unknown; token?: string | undefined },
+  ): Promise<InjectedResponse>;
   close(): Promise<void>;
 }
 
@@ -165,6 +178,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
 
   const logLines: string[] = [];
   const clock = { now: options.now ?? new Date() };
+  const approvals = createApprovalService(prisma, () => clock.now);
 
   const app = buildApp({
     prisma,
@@ -172,9 +186,11 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     secretStore: createDbSecretStore(prisma, MASTER_KEY),
     engine: options.engine ?? createBuiltinEngine(),
     adapters: [githubAdapter],
+    approvals,
     audit: createAuditRecorder(prisma),
     clock: () => clock.now,
     environment: 'development',
+    adminToken: ADMIN_TOKEN,
     logger: createLogger({
       level: 'trace',
       destination: {
@@ -190,6 +206,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     app,
     prisma,
     tokenService,
+    approvals,
     principalId,
     agentId,
     missionId,
@@ -221,9 +238,29 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       });
     },
 
+    async approvalStatus(approvalId, token) {
+      return app.inject({
+        method: 'GET',
+        url: `/v1/approvals/${approvalId}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+    },
+
+    async admin(method, url, adminOptions = {}) {
+      const token = 'token' in adminOptions ? adminOptions.token : ADMIN_TOKEN;
+
+      return app.inject({
+        method,
+        url,
+        ...(token === undefined ? {} : { headers: { authorization: `Bearer ${token}` } }),
+        ...(adminOptions.body === undefined ? {} : { payload: adminOptions.body as object }),
+      });
+    },
+
     async close() {
       await app.close();
       await upstream.close();
+      await prisma.approval.deleteMany({ where: { missionId } });
       // Counters are keyed by mission and nothing else deletes them, so a suite that ran a few
       // hundred times would otherwise leave a few hundred dead rows behind. Audit rows stay:
       // the table is append-only by design and refuses a delete anyway.

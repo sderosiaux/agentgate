@@ -58,6 +58,9 @@ test('the generated secrets differ from the committed dev-only values', () => {
     'AGENTGATE_MASTER_KEY',
     'AGENTGATE_JWT_PRIVATE_KEY',
     'AGENTGATE_JWT_PUBLIC_KEY',
+    // The management API can approve anything the policy engine gates: a generated
+    // environment that kept `dev-admin-token` would hand that away with the repository.
+    'ADMIN_TOKEN',
   ]) {
     expect(template).not.toContain(`${key}=${env[key]}`);
   }

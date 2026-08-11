@@ -11,6 +11,8 @@ export interface GatewayConfig {
   jwtPublicKey: string;
   /** Signing key. Absent on a gateway that only verifies — minting is management (plan 08). */
   jwtPrivateKey: string | undefined;
+  /** The single credential guarding the management API, including approve and deny. */
+  adminToken: string;
   policyEngine: PolicyEngineName;
   opaUrl: string | undefined;
   environment: string;
@@ -60,6 +62,10 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
     masterKey: required(env, 'AGENTGATE_MASTER_KEY'),
     jwtPublicKey: required(env, 'AGENTGATE_JWT_PUBLIC_KEY'),
     jwtPrivateKey: env['AGENTGATE_JWT_PRIVATE_KEY'],
+    // Not optional, and not defaulted: a gateway that started with an empty admin token would
+    // serve the management API to anyone who sends an empty bearer, which is worse than a
+    // gateway that refuses to start.
+    adminToken: required(env, 'ADMIN_TOKEN'),
     policyEngine,
     ...(opaUrl === undefined || opaUrl === '' ? { opaUrl: undefined } : { opaUrl }),
     environment: env['ENVIRONMENT'] ?? 'development',

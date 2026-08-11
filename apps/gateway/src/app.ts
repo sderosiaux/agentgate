@@ -1,9 +1,11 @@
 import { AgentGateError, newId } from '@agentgate/shared';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Logger } from 'pino';
+import { createApprovalRoutes } from './approvals/agent.routes.js';
 import type { PipelineDeps } from './enforcement/pipeline.js';
 import { createProxyRoutes } from './enforcement/proxy.route.js';
 import { createLogger } from './logging.js';
+import { createManagementRoutes } from './management/plugin.js';
 
 /**
  * Everything the gateway needs from the outside world, handed in rather than reached for.
@@ -11,12 +13,14 @@ import { createLogger } from './logging.js';
  * same app, wired the same way, with no environment to arrange.
  */
 export interface GatewayDeps extends PipelineDeps {
+  /** Guards the management tree. Only that tree ever sees it. */
+  adminToken: string;
   logger?: Logger;
   fastify?: FastifyServerOptions;
 }
 
 export function buildApp(deps: GatewayDeps): FastifyInstance {
-  const { logger, fastify, ...pipeline } = deps;
+  const { logger, fastify, adminToken, ...pipeline } = deps;
 
   // Request ids are AgentGate ids: the same value is echoed as `request_id` in error bodies,
   // stored on every audit event and sent upstream as `x-request-id`.
@@ -28,9 +32,15 @@ export function buildApp(deps: GatewayDeps): FastifyInstance {
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  // The enforcement tree. Management routes (plan 08) register as their own plugin with their
-  // own dependencies, and neither imports the other (D11).
+  // The enforcement tree: the proxy, and the read side of an approval the agent is waiting on.
   void app.register(createProxyRoutes(pipeline));
+  void app.register(
+    createApprovalRoutes({ tokenService: pipeline.tokenService, approvals: pipeline.approvals }),
+  );
+
+  // The management tree, wired separately and guarded by its own credential. Neither tree
+  // imports the other (D11): this file is the only place that knows both exist.
+  void app.register(createManagementRoutes({ approvals: pipeline.approvals, adminToken }));
 
   app.setNotFoundHandler(async (request, reply) =>
     reply

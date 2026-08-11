@@ -5,6 +5,7 @@ const VALID: NodeJS.ProcessEnv = {
   AGENTGATE_MASTER_KEY: Buffer.alloc(32, 0x11).toString('base64'),
   AGENTGATE_JWT_PUBLIC_KEY: 'MCowBQYDK2VwAyEA+PGqiz7+4VXQkMd1WL/BfPxi9FJxG8bgUYzl5ysYXQ8=',
   DATABASE_URL: 'postgresql://agentgate:agentgate@postgres:5432/agentgate',
+  ADMIN_TOKEN: 'admin-token-for-the-test',
 };
 
 test('the demo environment is usable, so the stack boots', () => {
@@ -39,6 +40,14 @@ test('a gateway with no database refuses to start', () => {
   const { DATABASE_URL: _omitted, ...withoutDatabase } = VALID;
 
   expect(() => loadGatewayConfig(withoutDatabase)).toThrow(/DATABASE_URL/);
+});
+
+test('a gateway with no admin token refuses to start', () => {
+  const { ADMIN_TOKEN: _omitted, ...withoutAdminToken } = VALID;
+
+  // An empty one is the dangerous case: the guard would then accept an empty bearer.
+  expect(() => loadGatewayConfig(withoutAdminToken)).toThrow(/ADMIN_TOKEN/);
+  expect(() => loadGatewayConfig({ ...VALID, ADMIN_TOKEN: '' })).toThrow(/ADMIN_TOKEN/);
 });
 
 test('the signing key stays optional: a gateway that only verifies is a valid one', () => {
