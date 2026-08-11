@@ -16,6 +16,7 @@
  */
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -31,9 +32,15 @@ const APPROVAL_DELAY_MS = 2_000;
 
 const MISSION_TTL_MS = 60 * 60 * 1000;
 
-/** The port a host-mode gateway binds. Compose publishes its own on GATEWAY_PORT. */
-const HOST_GATEWAY_PORT = 8099;
-const HOST_MOCK_GITHUB_PORT = 3001;
+/** What counts as "yes, approve it for me" in DEMO_AUTO_APPROVE. Anything else is a no. */
+const APPROVED_SPELLINGS = new Set(['1', 'true', 'yes', 'on']);
+
+/**
+ * The ports a host-mode run binds, when nothing says otherwise. Overridable because 8099 and
+ * 3001 are ordinary numbers on a developer's machine and something else may already hold them —
+ * which used to be discovered as a demo that passed against a *foreign* process.
+ */
+const HOST_PORT_DEFAULTS = { DEMO_GATEWAY_PORT: 8099, DEMO_MOCK_GITHUB_PORT: 3001 };
 
 /**
  * The mission the demo is about, mirroring the seed: `pull_request.create` needs a human,
@@ -117,6 +124,49 @@ function webConsoleUrl() {
   return (
     process.env['AGENTGATE_WEB_URL'] ?? `http://localhost:${process.env['WEB_PORT'] ?? '3000'}`
   );
+}
+
+/** A port from the environment, or the default. Read after `.env` is loaded, never before. */
+function hostPort(name) {
+  const raw = process.env[name];
+
+  if (raw === undefined || raw === '') {
+    return HOST_PORT_DEFAULTS[name];
+  }
+
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    fail(`${name} must be a tcp port number, not "${raw}"`);
+  }
+
+  return port;
+}
+
+/**
+ * Refuses to start anything on a port that is already taken.
+ *
+ * Without this the health check below is the only thing standing between the demo and a
+ * *foreign* process: something else answering 200 on /healthz would be adopted as the gateway,
+ * and the run would report on a stack it never started. Bind-and-release is the only way to ask
+ * the question that does not depend on what the other process happens to serve.
+ */
+async function assertPortIsFree(port, what, override) {
+  await new Promise((resolve, reject) => {
+    const probe = createServer();
+
+    probe.once('error', (error) => {
+      reject(
+        error.code === 'EADDRINUSE'
+          ? new Error(
+              `port ${String(port)} is already in use, so ${what} cannot be started there — stop what is holding it, or set ${override} to a free port`,
+            )
+          : error,
+      );
+    });
+    probe.listen({ port, host: '127.0.0.1', exclusive: true }, () => {
+      probe.close(() => resolve());
+    });
+  });
 }
 
 /** Runs a command to completion, with its output on ours. Rejects on a non-zero exit. */
@@ -378,6 +428,14 @@ async function hostMode(autoApprove) {
     'build',
   ]);
 
+  const gatewayPort = hostPort('DEMO_GATEWAY_PORT');
+  const mockGithubPort = hostPort('DEMO_MOCK_GITHUB_PORT');
+
+  // Before anything is spawned: a port already answering is a process this run did not start,
+  // and adopting it would make the demo report on somebody else's stack.
+  await assertPortIsFree(mockGithubPort, 'the mock GitHub', 'DEMO_MOCK_GITHUB_PORT');
+  await assertPortIsFree(gatewayPort, 'the gateway', 'DEMO_GATEWAY_PORT');
+
   const stopped = [];
   const stopAll = () => {
     for (const child of stopped) {
@@ -390,11 +448,11 @@ async function hostMode(autoApprove) {
       'mock-github',
       ['services/mock-github/dist/index.js'],
       {
-        PORT: String(HOST_MOCK_GITHUB_PORT),
+        PORT: String(mockGithubPort),
         HOST: '127.0.0.1',
         MOCK_GITHUB_TOKEN: required('MOCK_GITHUB_TOKEN'),
       },
-      `http://127.0.0.1:${String(HOST_MOCK_GITHUB_PORT)}/healthz`,
+      `http://127.0.0.1:${String(mockGithubPort)}/healthz`,
     );
     stopped.push(mockGithub);
 
@@ -402,17 +460,17 @@ async function hostMode(autoApprove) {
       'gateway',
       ['apps/gateway/dist/index.js'],
       {
-        PORT: String(HOST_GATEWAY_PORT),
+        PORT: String(gatewayPort),
         HOST: '127.0.0.1',
         // The host-side database, which is where `make db-migrate` applied the schema.
         DATABASE_URL: required('DATABASE_URL_TEST'),
       },
-      `http://127.0.0.1:${String(HOST_GATEWAY_PORT)}/healthz`,
+      `http://127.0.0.1:${String(gatewayPort)}/healthz`,
     );
     stopped.push(gateway);
 
     const management = new Management(
-      `http://127.0.0.1:${String(HOST_GATEWAY_PORT)}`,
+      `http://127.0.0.1:${String(gatewayPort)}`,
       required('ADMIN_TOKEN'),
     );
     await management.waitForHealth();
@@ -424,11 +482,11 @@ async function hostMode(autoApprove) {
       alias,
       provider: 'github',
       logicalHost: 'api.github.com',
-      upstreamBaseUrl: `http://127.0.0.1:${String(HOST_MOCK_GITHUB_PORT)}`,
+      upstreamBaseUrl: `http://127.0.0.1:${String(mockGithubPort)}`,
       injection: { type: 'header', name: 'Authorization', format: 'Bearer {value}' },
       value: required('MOCK_GITHUB_TOKEN'),
     });
-    log(`created credential ${alias} → http://127.0.0.1:${String(HOST_MOCK_GITHUB_PORT)}`);
+    log(`created credential ${alias} → http://127.0.0.1:${String(mockGithubPort)}`);
 
     const session = await issueMission(management, alias);
 
@@ -445,7 +503,7 @@ async function hostMode(autoApprove) {
         // happen to live there inside the sandbox the demo is about.
         env: {
           PATH: process.env['PATH'],
-          AGENTGATE_URL: `http://127.0.0.1:${String(HOST_GATEWAY_PORT)}`,
+          AGENTGATE_URL: `http://127.0.0.1:${String(gatewayPort)}`,
           AGENTGATE_TOKEN: session.token,
           AGENTGATE_CREDENTIAL: alias,
           AGENTGATE_WEB_URL: webConsoleUrl(),
@@ -464,7 +522,13 @@ async function hostMode(autoApprove) {
 loadEnvFile();
 
 const mode = process.env['DEMO_MODE'] === 'host' ? 'host' : 'compose';
-const autoApprove = process.env['DEMO_AUTO_APPROVE'] !== '0';
+// Explicitly true, or absent. `!== '0'` read `DEMO_AUTO_APPROVE=false` as a yes, which is the
+// one spelling somebody turning it off is most likely to reach for. Absent still means on: the
+// demo is meant to run unattended, and an .env that never mentions the variable should not
+// leave the agent waiting two minutes for a click nobody was told to make.
+const autoApprove = APPROVED_SPELLINGS.has(
+  (process.env['DEMO_AUTO_APPROVE'] ?? '1').trim().toLowerCase(),
+);
 
 log(`${mode} mode, auto-approve ${autoApprove ? 'on' : 'off'}`);
 
