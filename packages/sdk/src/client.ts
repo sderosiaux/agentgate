@@ -87,8 +87,12 @@ async function sleep(ms: number): Promise<void> {
  * agent would have one to pass.
  */
 export class AgentGate {
-  private readonly gatewayUrl: string;
-  private readonly token: string;
+  // `#` rather than `private`: TypeScript's `private` is a compile-time promise and a runtime
+  // enumerable property, so `JSON.stringify(client)` — in a log line, an error report, a crash
+  // dump — would print the mission token. This class is instantiated inside the sandbox, which
+  // is exactly the place where that is not a theoretical concern.
+  readonly #gatewayUrl: string;
+  readonly #token: string;
 
   constructor(options: AgentGateOptions) {
     if (options.gatewayUrl === '') {
@@ -100,8 +104,8 @@ export class AgentGate {
       throw new AgentGateSdkError('token is required', { code: 'agentgate_sdk_misconfigured' });
     }
 
-    this.gatewayUrl = trimTrailingSlash(options.gatewayUrl);
-    this.token = options.token;
+    this.#gatewayUrl = trimTrailingSlash(options.gatewayUrl);
+    this.#token = options.token;
   }
 
   /**
@@ -213,10 +217,10 @@ export class AgentGate {
 
   private async send(method: 'GET' | 'POST', path: string, payload: unknown): Promise<Response> {
     try {
-      return await fetch(`${this.gatewayUrl}${path}`, {
+      return await fetch(`${this.#gatewayUrl}${path}`, {
         method,
         headers: {
-          authorization: `Bearer ${this.token}`,
+          authorization: `Bearer ${this.#token}`,
           ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
         },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
@@ -226,7 +230,7 @@ export class AgentGate {
       // worth saying in those words rather than letting a bare `TypeError: fetch failed` reach
       // an agent that has no other route to try.
       throw new GatewayError(
-        `the gateway at ${this.gatewayUrl} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+        `the gateway at ${this.#gatewayUrl} could not be reached: ${error instanceof Error ? error.message : String(error)}`,
         { code: 'agentgate_sdk_unreachable' },
       );
     }

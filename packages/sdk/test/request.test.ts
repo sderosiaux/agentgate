@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentGate, AgentGateSdkError } from '../src/index.js';
 import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
@@ -97,6 +98,19 @@ describe('AgentGate.request', () => {
     await expect(
       gate.request({ credential: 'github_work', method: 'GET', url: ISSUE_URL }),
     ).rejects.toMatchObject({ code: 'agentgate_sdk_unreachable' });
+  });
+
+  it('does not carry the mission token on any enumerable property', () => {
+    // This class is instantiated inside the sandbox, next to whatever else the agent runs. A
+    // token on a public field is one `JSON.stringify(client)` — in a log line, in an error
+    // report, in a crash dump — away from being written down somewhere nobody is scrubbing.
+    const token = 'mission-token-that-must-not-be-printed';
+    const gate = new AgentGate({ gatewayUrl: 'http://gateway:8080', token });
+
+    expect(JSON.stringify(gate)).not.toContain(token);
+    expect(JSON.stringify({ client: gate })).not.toContain(token);
+    expect(Object.keys(gate)).toHaveLength(0);
+    expect(inspect(gate, { depth: 5 })).not.toContain(token);
   });
 
   it('refuses to be built without a gateway url or a token', () => {
