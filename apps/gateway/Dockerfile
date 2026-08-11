@@ -11,6 +11,7 @@ COPY apps/gateway/package.json apps/gateway/
 # Every workspace project must be present or the frozen lockfile no longer matches.
 # Keep this list in sync with pnpm-workspace.yaml: a new project without a line
 # here breaks the image build, and only the image build.
+COPY apps/web/package.json apps/web/
 COPY packages/auth/package.json packages/auth/
 COPY packages/policy/package.json packages/policy/
 COPY packages/shared/package.json packages/shared/

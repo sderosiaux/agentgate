@@ -102,6 +102,40 @@ services:
       # Exposed so the parity suite can run against it. Override OPA_PORT when 8181 is taken.
       - '${OPA_PORT:-8181}:8181'
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    # service-net only. The console talks to the gateway's management API and nothing else; it
+    # has no route to the agent network and never touches the database.
+    networks: [service-net]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    # Named one by one rather than through `env_file: .env`, on purpose: that file also holds the
+    # master encryption key and the JWT signing key, and the console has no business being able
+    # to read either. Compose still interpolates these from .env on the host.
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
+      # Displayed on the Policies page, labelled as the deployment's intent: the management API
+      # does not report which engine the gateway booted with.
+      POLICY_ENGINE: ${POLICY_ENGINE:-builtin}
+      PORT: 3000
+    ports:
+      # Override WEB_PORT when 3000 is already taken on the host.
+      - '${WEB_PORT:-3000}:3000'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:3000/\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
   demo-agent:
     build:
       context: .

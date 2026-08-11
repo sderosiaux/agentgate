@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.next/
 pnpm-lock.yaml
 apps/gateway/src/generated/
 apps/gateway/prisma/migrations/
