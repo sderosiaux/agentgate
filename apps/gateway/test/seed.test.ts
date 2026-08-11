@@ -105,7 +105,13 @@ test('the seed refuses to run without the demo token', async () => {
   try {
     await expect(seed(prisma)).rejects.toThrow(/MOCK_GITHUB_TOKEN/);
   } finally {
-    process.env['MOCK_GITHUB_TOKEN'] = saved;
+    // Assigning `undefined` to process.env stores the literal string "undefined", which
+    // would leave every later test running against a bogus token.
+    if (saved === undefined) {
+      delete process.env['MOCK_GITHUB_TOKEN'];
+    } else {
+      process.env['MOCK_GITHUB_TOKEN'] = saved;
+    }
   }
 });
 

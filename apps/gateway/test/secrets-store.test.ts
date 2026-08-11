@@ -9,6 +9,7 @@ const OTHER_KEY = Buffer.alloc(32, 0x3b).toString('base64');
 // Fixture aliases of their own: the store must not depend on whatever the demo seed holds.
 const ACTIVE_ALIAS = 'test_store_active';
 const REVOKED_ALIAS = 'test_store_revoked';
+const DRIFTED_ALIAS = 'test_store_drifted';
 const SECRET = 'fixture-token-do-not-log';
 
 let prisma: PrismaClient;
@@ -37,10 +38,26 @@ beforeAll(async () => {
       update: credential,
     });
   }
+
+  // A row whose Json injection column no longer matches the schema: hand-edited, or written
+  // by an older version of the seed.
+  const drifted = {
+    ...shared,
+    alias: DRIFTED_ALIAS,
+    status: 'active',
+    injection: { type: 'header', name: 'Authorization', format: 'Bearer <no placeholder>' },
+  };
+  await prisma.credential.upsert({
+    where: { alias: DRIFTED_ALIAS },
+    create: { id: `cred_${DRIFTED_ALIAS}`, ...drifted },
+    update: drifted,
+  });
 });
 
 afterAll(async () => {
-  await prisma.credential.deleteMany({ where: { alias: { in: [ACTIVE_ALIAS, REVOKED_ALIAS] } } });
+  await prisma.credential.deleteMany({
+    where: { alias: { in: [ACTIVE_ALIAS, REVOKED_ALIAS, DRIFTED_ALIAS] } },
+  });
   await prisma.$disconnect();
 });
 
@@ -65,6 +82,17 @@ test('an unknown alias resolves to null', async () => {
 
 test('a credential that is no longer active resolves to null', async () => {
   await expect(store.getByAlias(REVOKED_ALIAS)).resolves.toBeNull();
+});
+
+test('a drifted injection column names the alias instead of throwing a raw ZodError', async () => {
+  const failure = await store.getByAlias(DRIFTED_ALIAS).catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toContain(DRIFTED_ALIAS);
+  expect((failure as Error).message).toMatch(/injection spec/i);
+  expect((failure as Error).name).toBe('Error');
+  // The schema failure is kept for the logs rather than thrown as-is.
+  expect((failure as Error).cause).toBeDefined();
 });
 
 test('a store holding the wrong master key fails instead of returning garbage', async () => {
