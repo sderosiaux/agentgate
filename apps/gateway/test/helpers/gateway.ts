@@ -224,6 +224,11 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     async close() {
       await app.close();
       await upstream.close();
+      // Counters are keyed by mission and nothing else deletes them, so a suite that ran a few
+      // hundred times would otherwise leave a few hundred dead rows behind. Audit rows stay:
+      // the table is append-only by design and refuses a delete anyway.
+      await prisma.rateWindow.deleteMany({ where: { missionId } });
+      await prisma.usageCounter.deleteMany({ where: { missionId } });
       await prisma.mission.deleteMany({ where: { id: missionId } });
       await prisma.credential.deleteMany({ where: { alias } });
       await prisma.agent.deleteMany({ where: { id: agentId } });
