@@ -78,6 +78,10 @@ No Docker? `make demo-host` runs the same demo as local processes against a Post
 
 Other targets: `make setup` (install + generate `.env`), `make test` (every suite, leak scan included), `make db-migrate` (migrate both databases from the host), `make db-reset` (drop and rebuild them, reseed the demo), `make reset` (tear down compose and delete its volume).
 
+`make test` starts Postgres through compose before it runs anything, so on a machine without a Docker daemon it stops at the first line. Bring your own Postgres, point `DATABASE_URL_TEST` and `DATABASE_URL_DEMO` at it, then `make db-migrate && pnpm -r test` gets you the same suites.
+
+CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml): types and formatting, `opa test` and `opa check --strict`, every suite against a real Postgres, the OPA parity suite with a live OPA and a hard failure if a single test in that package skipped, and the compose demo followed by a leak scan that reads the container logs.
+
 ---
 
 ## The demo

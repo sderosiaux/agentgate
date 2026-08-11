@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per branch. A second push cancels the first: nothing here is a deployment, and a
+# queue of stale runs is a queue nobody reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to the version docker-compose.yml runs. A parity suite proving the rego agrees with
+  # the builtin engine on a different OPA than the one deployed proves the wrong thing.
+  OPA_VERSION: 1.19.0
+
+jobs:
+  # Everything that needs neither a database nor a network: fast, and first, so a typo does not
+  # wait behind a Postgres container starting.
+  static:
+    name: Types and formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm -r typecheck
+
+  policies:
+    name: Rego
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa \
+            "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+          opa version
+      - run: opa test policies/ --verbose
+      # --strict turns unused declarations and shadowed variables into errors. A rego file that
+      # loads is not a rego file that says what its author meant.
+      - run: opa check --strict policies/
+
+  test:
+    name: Test suites
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: agentgate
+          POSTGRES_PASSWORD: agentgate
+          POSTGRES_DB: agentgate
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U agentgate -d agentgate"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa \
+            "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          chmod +x /usr/local/bin/opa
+
+      - name: Start OPA against the committed policies
+        run: |
+          opa run --server --addr 127.0.0.1:8181 --log-level error policies/ &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8181/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "OPA never became healthy"; exit 1
+
+      - name: Create .env
+        run: |
+          cp .env.example .env
+          # The example file addresses the database by its compose hostname; on a runner the
+          # service container is on localhost.
+          sed -i 's#@postgres:5432#@localhost:5432#' .env
+
+      - name: Migrate both databases
+        run: make db-migrate
+
+      - name: Every workspace suite, leak scan included
+        # `tests/security/secret-leak.test.ts` is part of this run: it executes a host-mode demo
+        # and then greps the transcript, both databases, every management GET, the OpenAPI
+        # document and every console page. It needs a built console to have pages to read.
+        run: |
+          pnpm --filter @agentgate/web build
+          pnpm -r test
+
+      # The parity suite is `describe.skipIf(!OPA_URL)`, which means the default way to run it
+      # is not to. Run it deliberately, and fail if a single test in this package was skipped:
+      # "the rego and the builtin engine agree" is the one claim in the repository that a green
+      # suite can make while proving nothing at all.
+      - name: Policy parity against a live OPA, with zero tolerance for skips
+        env:
+          OPA_URL: http://127.0.0.1:8181
+        run: |
+          pnpm --filter @agentgate/policy exec vitest run \
+            --reporter=json --outputFile=/tmp/policy-report.json
+          skipped=$(node -e "
+            const r = require('/tmp/policy-report.json');
+            process.stdout.write(String(r.numPendingTests + r.numTodoTests));
+          ")
+          echo "skipped: $skipped"
+          if [ "$skipped" != "0" ]; then
+            echo "::error::$skipped policy test(s) were skipped with OPA_URL set."
+            echo "::error::The parity suite did not run. A green result here means nothing."
+            exit 1
+          fi
+
+  # The compose path, which is the one the README's quickstart tells people to run and the only
+  # one that can prove demo case 0. It has never been executed on the machine this was written
+  # on — no Docker daemon — so this job is where it runs for the first time.
+  demo:
+    name: Demo (compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse to pretend
+        # `make demo` needs a daemon. If this runner has none, the job fails rather than
+        # silently falling back to host mode: host mode skips case 0, and a demo job that
+        # quietly stops proving network isolation is worse than one that goes red.
+        run: docker info
+
+      - run: cp .env.example .env
+      - name: Build and start the stack
+        run: docker compose up --build -d --wait postgres gateway mock-github web
+
+      - name: make demo
+        # Kept verbatim, because it is what the scan below reads. `pipefail` so that a failing
+        # demo is a failing step rather than a successful `tee`.
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          make demo 2>&1 | tee artifacts/demo-output.txt
+
+      - name: Migrate the host-side databases
+        # The scan below starts its own gateway to sweep the management API, and compose
+        # publishes Postgres on localhost for exactly this kind of host-side access.
+        run: make db-migrate
+
+      - name: Leak scan, over the compose run this time
+        # Same scan the suite runs, with two differences that matter: the transcript it reads is
+        # the *container* demo rather than a host one, and a daemon exists, so the
+        # `docker compose logs` stage executes instead of skipping loudly. The console stage
+        # still skips here — the console is in a container, not a local build.
+        run: node scripts/leak-scan.mjs --transcript artifacts/demo-output.txt
+
+      - name: Keep the transcript, but only when something went wrong
+        # On failure only. The transcript is the evidence for a demo that broke, and it also
+        # contains the mission token case 2 prints by design — dead by then, since case 6
+        # expires that mission in the same run, but there is no reason to publish it on every
+        # green build for the sake of it.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-output
+          path: artifacts/demo-output.txt
+          if-no-files-found: warn
+
+      - name: What the containers said
+        if: always()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
