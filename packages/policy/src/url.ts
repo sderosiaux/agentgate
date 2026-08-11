@@ -39,8 +39,8 @@ function invalid(reason: string): never {
  *
  * `new URL` resolves `..` itself and clamps at the root instead of failing, and it treats
  * `%2e%2e` as a `..` segment — so reading `pathname` would hand us an already-laundered path
- * and hide the traversal we are supposed to refuse. The scheme has been validated by the
- * caller, so `://` is present.
+ * and hide the traversal we are supposed to refuse. The caller has already insisted the url
+ * spells `scheme://`, so the separator below is there to be found.
  */
 function rawPathOf(raw: string): string {
   const authorityStart = raw.indexOf('://') + 3;
@@ -79,6 +79,14 @@ export function normalizeUrl(raw: string): NormalizedUrl {
 
   if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
     invalid('request url must use http or https');
+  }
+
+  // `new URL` also accepts `https:/host/path` and `https:host/path`, resolving the authority
+  // out of what looks, read literally, like the start of the path. Insisting on the one
+  // spelling where both readings agree is what keeps `rawPathOf` below honest. The scheme
+  // itself is case-insensitive, so only its casing is normalised before comparing.
+  if (raw.slice(0, parsed.protocol.length + 2).toLowerCase() !== `${parsed.protocol}//`) {
+    invalid('request url must spell its scheme followed by a double slash');
   }
 
   if (parsed.username !== '' || parsed.password !== '') {

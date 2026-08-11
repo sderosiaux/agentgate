@@ -124,6 +124,27 @@ describe('normalizeUrl', () => {
     expectRejected('https://:secret@api.github.com/repos/acme/payments');
   });
 
+  test('rejects a scheme not followed by a double slash', () => {
+    // `new URL` accepts these spellings and resolves the authority anyway, so the raw string
+    // and the parsed url stop agreeing about where the path begins: `https:/host/a/b` read
+    // literally yields /host/a/b while the upstream serves /a/b.
+    expect(new URL('https:/api.github.com/repos/acme/secrets/x').pathname).toBe(
+      '/repos/acme/secrets/x',
+    );
+    expectRejected('https:/api.github.com/repos/acme/secrets/x');
+    expectRejected('https:api.github.com/repos/acme/secrets/x');
+    expectRejected('http:/api.github.com/repos/acme/payments');
+  });
+
+  test('an uppercase scheme is still a normal url', () => {
+    // The scheme is case-insensitive, so the guard above must compare it as such.
+    expect(normalizeUrl('HTTPS://API.GitHub.com/repos/acme/payments')).toEqual({
+      host: 'api.github.com',
+      path: '/repos/acme/payments',
+      protocol: 'https:',
+    });
+  });
+
   test('rejects a non-http scheme', () => {
     expectRejected('ftp://api.github.com/repos/acme/payments');
     expectRejected('file:///etc/passwd');
