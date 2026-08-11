@@ -44,6 +44,8 @@ services:
     env_file: .env
     environment:
       PORT: 8080
+      # In-network OPA address; only consulted when POLICY_ENGINE=opa.
+      OPA_URL: http://opa:8181
     ports:
       # Override GATEWAY_PORT when 8080 is already taken on the host.
       - '${GATEWAY_PORT:-8080}:8080'
