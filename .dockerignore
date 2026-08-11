@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/src/generated
+.env
+.git
+.github
+docs
+*.log

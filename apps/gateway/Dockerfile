@@ -15,14 +15,9 @@ RUN pnpm --filter @agentgate/gateway exec prisma generate \
 
 FROM base AS runtime
 ENV NODE_ENV=production
-# The Prisma CLI and tsx stay in the image: the entrypoint applies migrations and
-# runs the seed before the gateway boots.
-COPY --from=build /app/node_modules node_modules
-COPY --from=build /app/package.json /app/pnpm-workspace.yaml ./
-COPY --from=build /app/apps/gateway/node_modules apps/gateway/node_modules
-COPY --from=build /app/apps/gateway/dist apps/gateway/dist
-COPY --from=build /app/apps/gateway/package.json apps/gateway/prisma.config.ts apps/gateway/
-COPY --from=build /app/apps/gateway/prisma apps/gateway/prisma
+# The workspace is copied whole: pnpm links packages through symlinks, and the
+# Prisma CLI and tsx must stay available for the entrypoint (migrate + seed).
+COPY --from=build /app /app
 COPY apps/gateway/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /app/apps/gateway
