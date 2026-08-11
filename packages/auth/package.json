@@ -1,5 +1,5 @@
 {
-  "name": "@agentgate/shared",
+  "name": "@agentgate/auth",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,7 +18,8 @@
     "test": "pnpm build && vitest run"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "@agentgate/shared": "workspace:*",
+    "jose": "^6.2.8"
   },
   "devDependencies": {
     "@types/node": "^22.19.2",
