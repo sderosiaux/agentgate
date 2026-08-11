@@ -226,6 +226,14 @@ test('an approval id nobody issued consumes nothing', async () => {
   expect(await service.tryConsume('apr_invented', binding())).toBe('not_found');
 });
 
+test('the approval lookups this module makes have an index behind them', async () => {
+  const indexes = await prisma.$queryRaw<{ indexname: string }[]>`
+    SELECT "indexname" FROM "pg_indexes" WHERE "tablename" = 'Approval'
+  `;
+
+  expect(indexes.map((index) => index.indexname)).toContain('Approval_missionId_status_idx');
+});
+
 test('the list is filtered by status and by mission, newest first', async () => {
   const first = await pending();
   await service.approve(first.approvalId, 'alice');
