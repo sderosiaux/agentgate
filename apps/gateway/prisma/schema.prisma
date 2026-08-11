@@ -61,8 +61,15 @@ model Approval {
   status         String    @default("pending") // pending | approved | denied | expired | consumed
   requestedAt    DateTime  @default(now())
   decidedAt      DateTime?
+  /// Who decided. A shared admin token names no human by itself, so the management API
+  /// takes it from the caller: an approval nobody is attached to is not an approval.
+  decidedBy      String?
   grantExpiresAt DateTime?
   consumedAt     DateTime?
+
+  // The two lookups that exist: the pipeline asking whether this mission already has a
+  // pending approval for what it is about to refuse, and the management list by status.
+  @@index([missionId, status])
 }
 
 model AuditEvent {
