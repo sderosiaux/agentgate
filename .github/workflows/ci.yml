@@ -101,30 +101,46 @@ jobs:
         # `tests/security/secret-leak.test.ts` is part of this run: it executes a host-mode demo
         # and then greps the transcript, both databases, every management GET, the OpenAPI
         # document and every console page. It needs a built console to have pages to read.
+        #
+        # OPA_URL is exported here so the parity tests run inside the main suite rather than
+        # only in the step below. Locally, without it, this run is 626 passing and 45 skipped.
+        env:
+          OPA_URL: http://127.0.0.1:8181
         run: |
           pnpm --filter @agentgate/web build
           pnpm -r test
 
-      # The parity suite is `describe.skipIf(!OPA_URL)`, which means the default way to run it
-      # is not to. Run it deliberately, and fail if a single test in this package was skipped:
-      # "the rego and the builtin engine agree" is the one claim in the repository that a green
-      # suite can make while proving nothing at all.
-      - name: Policy parity against a live OPA, with zero tolerance for skips
+      # Both OPA-gated suites are `skipIf(!OPA_URL)`, which means the default way to run them is
+      # not to: 45 tests that say "the rego and the builtin engine agree" and skip in silence.
+      # The step above sets the variable, and this one proves the variable had an effect — one
+      # skipped test in either package fails the build. Without it, a broken OPA startup would
+      # turn the parity claim off and the suite would still be green.
+      - name: Prove the parity suites actually ran
         env:
           OPA_URL: http://127.0.0.1:8181
         run: |
-          pnpm --filter @agentgate/policy exec vitest run \
-            --reporter=json --outputFile=/tmp/policy-report.json
-          skipped=$(node -e "
-            const r = require('/tmp/policy-report.json');
-            process.stdout.write(String(r.numPendingTests + r.numTodoTests));
-          ")
-          echo "skipped: $skipped"
-          if [ "$skipped" != "0" ]; then
-            echo "::error::$skipped policy test(s) were skipped with OPA_URL set."
-            echo "::error::The parity suite did not run. A green result here means nothing."
-            exit 1
-          fi
+          set -e
+          fail=0
+          check() {
+            local package="$1" report="$2"
+            shift 2
+            pnpm --filter "$package" exec vitest run "$@" \
+              --reporter=json --outputFile="$report"
+            local skipped
+            skipped=$(node -e "
+              const r = require('$report');
+              process.stdout.write(String(r.numPendingTests + r.numTodoTests));
+            ")
+            echo "$package: $skipped skipped"
+            if [ "$skipped" != "0" ]; then
+              echo "::error::$skipped test(s) in $package were skipped with OPA_URL set."
+              echo "::error::The parity suite did not run. A green result there means nothing."
+              fail=1
+            fi
+          }
+          check @agentgate/policy /tmp/policy-report.json
+          check @agentgate/gateway /tmp/gateway-opa-report.json test/proxy-opa.test.ts
+          exit "$fail"
 
   # The compose path, which is the one the README's quickstart tells people to run and the only
   # one that can prove demo case 0. It has never been executed on the machine this was written

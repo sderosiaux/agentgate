@@ -364,9 +364,11 @@ Two asymmetries worth knowing even when Docker works: case 0 proves isolation pa
 
 ### Test results
 
-`pnpm -r test` passes 626 tests and skips 45: mock-github 20, shared 20, auth 13, policy 163 (+44 skipped), gateway 285 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 7.
+`pnpm -r test` passes 626 and skips 45: mock-github 20, shared 20, auth 13, policy 163 (+44 skipped), gateway 285 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 7.
 
-The 44 skipped policy tests are the OPA parity suite, which runs only when `OPA_URL` points at a live OPA. CI exports it and fails the build if the skip count for that package is not zero, so "the rego and the builtin engine agree" is a claim with a runner behind it rather than a suite that opts out without saying so.
+With `OPA_URL` pointing at a live OPA it is 671 passing and nothing skipped. Those 45 are the parity suites, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 44 and fails.
+
+`opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.
 
 ## Roadmap
 
