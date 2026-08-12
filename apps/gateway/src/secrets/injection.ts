@@ -57,6 +57,17 @@ export const InjectionSpecInputSchema = z.strictObject({
 export interface InjectedHeader {
   name: string;
   value: string;
+  /**
+   * The credential on its own, before the format wrapped it around anything.
+   *
+   * Carried next to the composed header because the two are different strings, and an upstream
+   * reflecting the credential picks whichever it likes: the header as sent, or the bare value
+   * with the scheme stripped. Whoever has to keep this out of a response needs both spellings,
+   * and cannot recover this one from `value` — the format is a template, not an encoding.
+   *
+   * Named `secret` so `REDACT_PATHS` catches it if this object is ever handed to the logger.
+   */
+  secret: string;
 }
 
 /**
@@ -72,5 +83,9 @@ export function applyInjection(spec: InjectionSpec, value: string): InjectedHead
   // is reflecting it just the same.
   registerSensitive(value);
 
-  return { name: spec.name, value: spec.format.replaceAll('{value}', () => value) };
+  return {
+    name: spec.name,
+    value: spec.format.replaceAll('{value}', () => value),
+    secret: value,
+  };
 }

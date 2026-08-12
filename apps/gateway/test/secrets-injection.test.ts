@@ -9,7 +9,18 @@ test('the standard bearer format yields the header the upstream expects', () => 
   expect(applyInjection(spec('Bearer {value}'), 'fixture-token')).toEqual({
     name: 'Authorization',
     value: 'Bearer fixture-token',
+    secret: 'fixture-token',
   });
+});
+
+test('the credential travels next to the header it was wrapped into', () => {
+  // Two different strings, and an upstream reflecting the credential picks either one. The
+  // forwarder scrubs both out of the response, so both have to be reachable from here — the
+  // bare value cannot be recovered from a composed header.
+  const injected = applyInjection(spec('Bearer {value}'), 'fixture-token');
+
+  expect(injected.secret).toBe('fixture-token');
+  expect(injected.value).toBe('Bearer fixture-token');
 });
 
 test('a format without a surrounding template is still substituted', () => {
@@ -24,6 +35,7 @@ test('dollar patterns in the secret are never interpreted as replacement syntax'
     expect(applyInjection(spec('Bearer {value}'), secret)).toEqual({
       name: 'Authorization',
       value: `Bearer ${secret}`,
+      secret,
     });
   }
 });
@@ -50,5 +62,9 @@ test('the header name is taken from the spec, untouched', () => {
     format: 'key={value}',
   });
 
-  expect(applyInjection(custom, 'tok')).toEqual({ name: 'X-Api-Key', value: 'key=tok' });
+  expect(applyInjection(custom, 'tok')).toEqual({
+    name: 'X-Api-Key',
+    value: 'key=tok',
+    secret: 'tok',
+  });
 });

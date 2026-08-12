@@ -1,5 +1,5 @@
 import { AgentGateError } from '@agentgate/shared';
-import { registerSensitive, scrubSensitive } from '../logging.js';
+import { createExactScrubber, registerSensitive, scrubSensitive } from '../logging.js';
 import type { InjectedHeader } from '../secrets/index.js';
 
 /** A policy call and a forward both sit on the request path: a hung upstream must not hold it. */
@@ -197,12 +197,15 @@ export function buildUpstreamHeaders(
   return headers;
 }
 
-function returnedHeaders(response: Response): Record<string, string> {
+function returnedHeaders(
+  response: Response,
+  scrub: (text: string) => string,
+): Record<string, string> {
   const headers: Record<string, string> = {};
 
   response.headers.forEach((value, name) => {
     if (RETURNED_RESPONSE_HEADERS.has(name.toLowerCase())) {
-      headers[name.toLowerCase()] = scrubSensitive(value);
+      headers[name.toLowerCase()] = scrub(value);
     }
   });
 
@@ -225,6 +228,20 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
   // values it decrypts, but registering here too covers any credential that reached the
   // forwarder by another road, and it is the value this very call is putting at risk.
   registerSensitive(request.injected.value);
+
+  /**
+   * What must not come back out of *this* exchange. Two layers, because they answer different
+   * questions: `scrubSensitive` knows every value the process has decrypted, but only those long
+   * enough to be safe to strike out of arbitrary text; the exact scrubber knows the one
+   * credential this call just put on the wire, in both spellings and whatever its length.
+   *
+   * That second layer is what makes a five-character credential safe here. The length threshold
+   * exists so the global scrubber does not turn unrelated log lines into censors — a reason that
+   * says nothing about a response the gateway is handing back after injecting that exact value
+   * into the request that produced it.
+   */
+  const scrubThisExchange = createExactScrubber([request.injected.value, request.injected.secret]);
+  const scrub = (text: string): string => scrubThisExchange(scrubSensitive(text));
 
   let response: Response;
   try {
@@ -261,7 +278,7 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
 
   return {
     status: response.status,
-    headers: returnedHeaders(response),
+    headers: returnedHeaders(response, scrub),
     // Decoded as utf-8, which is a claim about the upstreams this gateway can talk to rather
     // than about http: bytes that are not text come back with U+FFFD where they were, silently.
     // It holds because a request only reaches here after a provider adapter mapped it, and
@@ -272,8 +289,9 @@ export async function forward(request: ForwardRequest): Promise<ForwardResult> {
     // An upstream that reflects the request — an echo endpoint, a debug route, a service that
     // quotes the header it rejected — hands the injected credential straight back, and this
     // body goes to the agent. Logs are not the only place a secret can escape from, so the
-    // same scrub the logger uses runs over what the agent is about to be told.
-    body: scrubSensitive(payload.toString('utf8')),
+    // same scrub the logger uses runs over what the agent is about to be told, plus this
+    // exchange's own credential whatever its length.
+    body: scrub(payload.toString('utf8')),
     // Counted before scrubbing: the byte budget is about what crossed the network, not about
     // what is left after the gateway has redacted it.
     responseBytes: payload.byteLength,

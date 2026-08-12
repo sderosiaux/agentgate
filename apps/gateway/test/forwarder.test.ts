@@ -8,12 +8,19 @@ import {
   type ForwardResult,
   type UpstreamResponseTooLarge,
 } from '../src/enforcement/forwarder.js';
+import { MIN_SENSITIVE_LENGTH, scrubSensitive } from '../src/logging.js';
 import { applyInjection } from '../src/secrets/index.js';
 import { startEchoUpstream, type EchoUpstream } from './helpers/echo-upstream.js';
 
 const UPSTREAM_TOKEN = 'forwarder-upstream-token';
 const INJECTION = { type: 'header', name: 'Authorization', format: 'Bearer {value}' } as const;
 const injected = applyInjection(INJECTION, UPSTREAM_TOKEN);
+
+/**
+ * Shorter than {@link MIN_SENSITIVE_LENGTH}, so the process-wide scrubber refuses to learn it —
+ * and it is still a credential the agent must never see coming back.
+ */
+const SHORT_TOKEN = '9Vt2q';
 
 let echo: EchoUpstream;
 let github: FastifyInstance;
@@ -187,6 +194,58 @@ test('a credential reflected without its scheme is caught too', async () => {
 
   expect(JSON.parse(result.body)['bare']).toBe('[REDACTED]');
   expect(result.headers['link']).toBe('[REDACTED]');
+});
+
+test('a credential too short for the global scrubber is still kept out of the response', async () => {
+  // The threshold protecting the logs is not a statement about which credentials deserve to be
+  // hidden from the agent: this one is five characters long, the upstream hands it straight
+  // back, and the whole gateway exists so that the agent never holds it.
+  expect(SHORT_TOKEN.length).toBeLessThan(MIN_SENSITIVE_LENGTH);
+
+  const result = await toEcho({ injected: applyInjection(INJECTION, SHORT_TOKEN) });
+  const body = JSON.parse(result.body) as { headers: Record<string, string>; bare: string };
+
+  // Both spellings: the header as composed, and the bare value an upstream that strips the
+  // scheme reflects.
+  expect(result.body).not.toContain(SHORT_TOKEN);
+  expect(body.headers['authorization']).toBe('[REDACTED]');
+  expect(body.bare).toBe('[REDACTED]');
+
+  // Still counted before scrubbing, and here the arithmetic runs the other way: `[REDACTED]` is
+  // longer than a five-character secret, so the body handed to the agent is bigger than what
+  // crossed the network. The mission is charged for the network.
+  expect(result.responseBytes).toBeLessThan(Buffer.byteLength(result.body, 'utf8'));
+});
+
+test('a short credential reflected into a response header does not reach the agent either', async () => {
+  const result = await toEcho({ injected: applyInjection(INJECTION, SHORT_TOKEN) });
+
+  expect(result.headers['etag']).toBe('[REDACTED]');
+  expect(result.headers['link']).toBe('[REDACTED]');
+});
+
+test('a short credential injected bare, with no scheme around it, is scrubbed too', async () => {
+  // `format` is exactly `{value}`, so the composed header and the credential are the same
+  // string — the case the reviewer named, and the one where a scrub keyed on the composed
+  // form alone would have nothing longer to match.
+  const result = await toEcho({
+    injected: applyInjection({ type: 'header', name: 'X-Api-Key', format: '{value}' }, SHORT_TOKEN),
+  });
+  const body = JSON.parse(result.body) as { headers: Record<string, string> };
+
+  expect(result.body).not.toContain(SHORT_TOKEN);
+  expect(body.headers['x-api-key']).toBe('[REDACTED]');
+});
+
+test('scrubbing one response does not teach the global scrubber a short value', async () => {
+  // The per-request denylist is scoped to the request that injected the credential. Registering
+  // a five-character string process-wide would redact it out of every unrelated log line, which
+  // is exactly what MIN_SENSITIVE_LENGTH is there to prevent.
+  await toEcho({ injected: applyInjection(INJECTION, SHORT_TOKEN) });
+
+  expect(scrubSensitive(`an unrelated line mentioning ${SHORT_TOKEN} stays intact`)).toBe(
+    `an unrelated line mentioning ${SHORT_TOKEN} stays intact`,
+  );
 });
 
 test('the bytes charged to the mission are the bytes the upstream actually sent', async () => {

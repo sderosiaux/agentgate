@@ -38,12 +38,12 @@ export function registerSensitive(value: string): void {
   }
 }
 
-/** Removes every registered value from an already-serialised log line. */
-export function scrubSensitive(line: string): string {
-  let scrubbed = line;
+function removeAll(text: string, values: Iterable<string>): string {
+  let scrubbed = text;
 
-  for (const value of sensitiveValues) {
-    if (scrubbed.includes(value)) {
+  for (const value of values) {
+    // An empty needle would have `replaceAll` insert the censor between every character.
+    if (value.length > 0 && scrubbed.includes(value)) {
       // A function replacement: `$&` and friends inside a secret must not be read as match
       // references, exactly as in `applyInjection`.
       scrubbed = scrubbed.replaceAll(value, () => CENSOR);
@@ -51,6 +51,47 @@ export function scrubSensitive(line: string): string {
   }
 
   return scrubbed;
+}
+
+/** Removes every registered value from an already-serialised log line. */
+export function scrubSensitive(line: string): string {
+  return removeAll(line, sensitiveValues);
+}
+
+/**
+ * A scrubber for a known, bounded set of strings — whatever their length.
+ *
+ * {@link MIN_SENSITIVE_LENGTH} guards the *global* set, because a three-character string
+ * registered there would be struck out of every log line the process ever writes, including all
+ * the ones that merely happen to contain those three characters. That reasoning is about reach,
+ * not about how much a short credential deserves to be hidden: where the values are exact and
+ * the text is one response the gateway is about to hand back, there is nothing unrelated to
+ * damage, so no length threshold applies.
+ *
+ * Longest first, so a value that contains another — `Bearer <token>` around `<token>` — is
+ * struck out as one censor rather than leaving `Bearer [REDACTED]` behind.
+ */
+export function createExactScrubber(values: readonly string[]): (text: string) => string {
+  const needles = new Set<string>();
+
+  for (const value of values) {
+    if (value.length === 0) {
+      continue;
+    }
+
+    needles.add(value);
+
+    // Same reason as `registerSensitive`: inside a json body, a value carrying a quote or a
+    // backslash is present only in its escaped spelling.
+    const escaped = JSON.stringify(value).slice(1, -1);
+    if (escaped !== value) {
+      needles.add(escaped);
+    }
+  }
+
+  const ordered = [...needles].sort((a, b) => b.length - a.length);
+
+  return (text: string) => removeAll(text, ordered);
 }
 
 /**

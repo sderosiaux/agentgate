@@ -1,5 +1,11 @@
 import { expect, test } from 'vitest';
-import { createLogger, registerSensitive, scrubSensitive } from '../src/logging.js';
+import {
+  createExactScrubber,
+  createLogger,
+  MIN_SENSITIVE_LENGTH,
+  registerSensitive,
+  scrubSensitive,
+} from '../src/logging.js';
 
 /** Collects the raw lines a logger writes, exactly as they would reach stdout. */
 function captureLogger() {
@@ -28,6 +34,38 @@ test('a value too short to be a credential is not registered', () => {
   registerSensitive('abc');
 
   expect(scrubSensitive('abc')).toBe('abc');
+});
+
+test('an exact scrubber removes a value the global one is right to refuse', () => {
+  // The length threshold is about reach, not about worth: given an exact value and a bounded
+  // piece of text, there is nothing unrelated to damage.
+  const short = 'zQ7';
+  expect(short.length).toBeLessThan(MIN_SENSITIVE_LENGTH);
+
+  expect(createExactScrubber([short])('reflected zQ7 back')).toBe('reflected [REDACTED] back');
+  // ... and the global set is left exactly as it was.
+  expect(scrubSensitive('reflected zQ7 back')).toBe('reflected zQ7 back');
+});
+
+test('an exact scrubber strikes the longest value first', () => {
+  // `Bearer tok` contains `tok`. Shortest-first would leave `Bearer [REDACTED]`, which tells an
+  // agent the scheme and the shape of what it was denied.
+  const scrub = createExactScrubber(['tok', 'Bearer tok']);
+
+  expect(scrub('sent Bearer tok upstream')).toBe('sent [REDACTED] upstream');
+});
+
+test('an exact scrubber matches the json-escaped spelling too', () => {
+  const secret = 'qu"ote';
+
+  expect(createExactScrubber([secret])(JSON.stringify({ echoed: secret }))).toBe(
+    '{"echoed":"[REDACTED]"}',
+  );
+});
+
+test('an exact scrubber given an empty value leaves the text alone', () => {
+  // An empty needle would have `replaceAll` insert a censor between every character.
+  expect(createExactScrubber(['', 'tok'])('a tok b')).toBe('a [REDACTED] b');
 });
 
 test('a registered value is scrubbed everywhere in a log line, not only in known keys', () => {
