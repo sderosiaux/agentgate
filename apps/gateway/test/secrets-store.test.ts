@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import util from 'node:util';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { createPrismaClient, type PrismaClient } from '../src/db.js';
@@ -6,10 +7,18 @@ import { createDbSecretStore, encryptSecret, type SecretStore } from '../src/sec
 const MASTER_KEY = Buffer.alloc(32, 0x2a).toString('base64');
 const OTHER_KEY = Buffer.alloc(32, 0x3b).toString('base64');
 
-// Fixture aliases of their own: the store must not depend on whatever the demo seed holds.
-const ACTIVE_ALIAS = 'test_store_active';
-const REVOKED_ALIAS = 'test_store_revoked';
-const DRIFTED_ALIAS = 'test_store_drifted';
+/**
+ * Fixture aliases of their own: the store must not depend on whatever the demo seed holds.
+ *
+ * Scoped per run, the way the gateway harness scopes its mission and agent ids. These used to be
+ * three fixed names created in `beforeAll` and deleted in `afterAll`, which works alone and
+ * fails the moment a second suite shares the database: one run's teardown deletes the rows the
+ * other is still reading, and the failure lands in whichever test happened to be mid-flight.
+ */
+const RUN = randomUUID().replaceAll('-', '').slice(0, 12);
+const ACTIVE_ALIAS = `test_store_active_${RUN}`;
+const REVOKED_ALIAS = `test_store_revoked_${RUN}`;
+const DRIFTED_ALIAS = `test_store_drifted_${RUN}`;
 const SECRET = 'fixture-token-do-not-log';
 
 let prisma: PrismaClient;

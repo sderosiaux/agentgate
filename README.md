@@ -377,6 +377,8 @@ Two asymmetries worth knowing even when Docker works: case 0 proves isolation pa
 
 `pnpm -r test` passes 671 and skips 47: mock-github 20, shared 21, auth 13, policy 167 (+46 skipped), gateway 324 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 8.
 
+One suite assumes it is alone. `apps/gateway/test/management-stats.test.ts` asserts on `/stats/overview`, which counts globally and takes no filter, so it measures deltas around its own fixture — and a second suite writing to `agentgate_test` at the same time pollutes them. Run the gateway suite one at a time, or expect those three tests to go red for a reason that has nothing to do with the code. Everything else is scoped per run, and two suites can share the database without noticing each other.
+
 With `OPA_URL` pointing at a live OPA it is 718 passing and nothing skipped. Those 47 are the parity suites, 46 in `packages/policy` and one in the gateway, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 47 (46 in `packages/policy`, one in the gateway) and fails.
 
 `opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.

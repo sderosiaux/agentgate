@@ -1,3 +1,21 @@
+/**
+ * The one suite in this package that assumes it is the only thing writing to the database.
+ *
+ * `/stats/overview` counts globally — every live mission, every audit row written today, every
+ * pending approval — and takes no filter. So these tests measure the *delta* around their own
+ * fixture, which is the only honest way to assert on a shared database with one writer, and it
+ * is exactly what a second concurrent writer breaks: the delta picks up their rows too.
+ *
+ * If you are reading this because these three tests went red and nothing else did, the question
+ * to ask is whether something else was hitting `agentgate_test` at the same time — another
+ * suite, another person, another agent. That is the usual answer.
+ *
+ * Deliberately not fixed here. Scoping them per run the way the harness scopes mission ids is
+ * impossible while the endpoint has no filter, and relaxing the assertions to "went up by at
+ * least" would turn a test that checks the counters into one that checks they move. Isolating
+ * this properly is an endpoint change, which is a product decision rather than a test fix.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, test } from 'vitest';
 import { startHarness, type Harness } from './helpers/gateway.js';
