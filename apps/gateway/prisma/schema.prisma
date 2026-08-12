@@ -121,6 +121,48 @@ model AuditEvent {
   @@index([requestId])
 }
 
+/// What the gateway was about to do, written before it did it.
+///
+/// `AuditEvent` is written in a `finally`, which is after the upstream has already acted. If
+/// that write fails — the one table-specific failure the rest of the gateway survives — the
+/// caller sees a 500 for a request that succeeded, retries, and does it twice. Nothing recorded
+/// the first attempt.
+///
+/// This is the pre-forward half. One row per attempt that reached an upstream, written and
+/// awaited before the request leaves, correlated with the outcome by `requestId`. A row here
+/// with no matching `AuditEvent` is a request that was sent and whose result nobody recorded:
+///
+///   SELECT f.* FROM "ForwardIntent" f
+///   LEFT JOIN "AuditEvent" a ON a."requestId" = f."requestId"
+///    WHERE a."id" IS NULL;
+///
+/// Deliberately a second table rather than a second `AuditEvent` row. The trail's contract is
+/// exactly one row per attempt (D12) and its triggers refuse every UPDATE, so an outcome cannot
+/// be appended to an existing row and a second row would make every count of the trail wrong.
+model ForwardIntent {
+  id              String   @id // fwi_xxx
+  requestId       String   @unique // req_xxx — the join key with AuditEvent
+  timestamp       DateTime @default(now())
+  principalId     String
+  agentId         String
+  missionId       String
+  resource        String
+  action          String
+  method          String
+  destHost        String
+  destPath        String
+  /// Metadata about the body, never the body (D10) — as in the trail.
+  bodyHash        String?
+  /// Which key was about to be injected, by name. Never the value behind it.
+  credentialAlias String
+  /// The grant this attempt spent, if any. A consumed one-time approval whose outcome was lost
+  /// is the case that most needs somebody to look at it.
+  approvalId      String?
+
+  @@index([timestamp])
+  @@index([missionId, timestamp])
+}
+
 model UsageCounter {
   missionId    String @id
   requestCount Int    @default(0)

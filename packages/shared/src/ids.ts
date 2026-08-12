@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-export type IdPrefix = 'pri' | 'agt' | 'mis' | 'cred' | 'apr' | 'aud' | 'req' | 'ses';
+export type IdPrefix = 'pri' | 'agt' | 'mis' | 'cred' | 'apr' | 'aud' | 'fwi' | 'req' | 'ses';
 
 const ID_LENGTH = 20;
 

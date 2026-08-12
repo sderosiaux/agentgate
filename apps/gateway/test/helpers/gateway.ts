@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { createApprovalService, type ApprovalService } from '../../src/approvals/service.js';
 import { createPrismaClient, type PrismaClient } from '../../src/db.js';
-import { createAuditRecorder } from '../../src/audit/recorder.js';
+import { createAuditRecorder, type AuditRecorder } from '../../src/audit/recorder.js';
 import { createLogger } from '../../src/logging.js';
 import { createDbSecretStore, encryptSecret, type InjectionSpec } from '../../src/secrets/index.js';
 
@@ -91,6 +91,8 @@ export interface HarnessOptions {
   /** The mission's own free-form label, which is not the deployment and never decides one. */
   missionLabel?: string;
   engine?: PolicyEngine;
+  /** Wraps the real recorder, for the tests about what happens when the trail cannot be written. */
+  audit?: (real: AuditRecorder) => AuditRecorder;
   /** What the pipeline reads as "now". Mutable, so a test can move the clock. */
   now?: Date;
   /**
@@ -217,7 +219,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     engine: options.engine ?? createBuiltinEngine(),
     adapters: [githubAdapter],
     approvals,
-    audit: createAuditRecorder(prisma),
+    audit: (options.audit ?? ((real: AuditRecorder) => real))(createAuditRecorder(prisma)),
     clock: () => clock.now,
     environment: options.environment ?? 'development',
     adminToken: ADMIN_TOKEN,
@@ -293,6 +295,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       await app.close();
       await upstream.close();
       await prisma.approval.deleteMany({ where: { missionId } });
+    await prisma.forwardIntent.deleteMany({ where: { missionId } });
       // Counters are keyed by mission and nothing else deletes them, so a suite that ran a few
       // hundred times would otherwise leave a few hundred dead rows behind. Audit rows stay:
       // the table is append-only by design and refuses a delete anyway.

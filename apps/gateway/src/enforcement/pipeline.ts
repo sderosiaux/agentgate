@@ -24,6 +24,7 @@ import {
   type ApprovalService,
   type ConsumeOutcome,
 } from '../approvals/service.js';
+import { recordForwardIntent } from '../audit/forward-intent.js';
 import type { AuditDecision, AuditRecorder, PolicyInputSnapshot } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
 import { parseBearer } from '../http/bearer.js';
@@ -707,6 +708,28 @@ async function execute(
       outOfBytes(attempt);
     }
     spend.booked += allowance;
+
+    // 10 — written down before it happens, and awaited.
+    //
+    // The audit row for this attempt is written in a `finally`, which is after the upstream has
+    // already acted. If that write is the thing that fails, the agent is told the gateway could
+    // not answer, retries, and does the same thing twice — with nothing anywhere saying the
+    // first one happened. This row is the half that cannot be lost that way: it is in another
+    // table, and a failure to write it refuses the request instead of hiding it.
+    await recordForwardIntent(deps.prisma, {
+      requestId: attempt.requestId,
+      principalId: claims.principalId,
+      agentId: claims.agentId,
+      missionId: mission.id,
+      resource: mapped.resource,
+      action: mapped.action,
+      method: request.method,
+      destHost: normalized.host,
+      destPath: normalized.path,
+      ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
+      credentialAlias: credential.alias,
+      ...(attempt.approvalId === undefined ? {} : { approvalId: attempt.approvalId }),
+    });
 
     let response;
     try {
