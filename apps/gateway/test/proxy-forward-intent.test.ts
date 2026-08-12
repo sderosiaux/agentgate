@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'vitest';
 import type { AuditEventInput, AuditRecorder } from '../src/audit/recorder.js';
+import type { PrismaClient } from '../src/db.js';
 import { startHarness, type Harness } from './helpers/gateway.js';
 
 let harness: Harness;
@@ -28,6 +29,40 @@ function brokenAudit(real: AuditRecorder, failWhen: (event: AuditEventInput) => 
       await real.record(event);
     },
   };
+}
+
+/**
+ * A client whose `ForwardIntent` table refuses inserts, and that is otherwise the real one.
+ *
+ * Scoped to the gateway this harness builds, so nothing outside it notices. The same shape the
+ * approvals suite uses to pin an interleaving: everything not named here goes to the database.
+ */
+function refuseForwardIntent(real: PrismaClient): PrismaClient {
+  const forwardIntent = new Proxy(real.forwardIntent as object, {
+    get(target, property) {
+      if (property === 'create') {
+        return async () => {
+          throw new Error('the forward intent table is not accepting writes');
+        };
+      }
+
+      const value = Reflect.get(target, property) as unknown;
+
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+  return new Proxy(real as object, {
+    get(target, property) {
+      if (property === 'forwardIntent') {
+        return forwardIntent;
+      }
+
+      const value = Reflect.get(target, property) as unknown;
+
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as PrismaClient;
 }
 
 test('nothing is forwarded before the intent to forward it is durable', async () => {
@@ -74,21 +109,22 @@ test('nothing is forwarded before the intent to forward it is durable', async ()
 test('an intent that cannot be written stops the request before the upstream sees it', async () => {
   // The other direction, and the whole point of writing it first: if the record cannot be made
   // durable, the side effect must not happen either.
-  harness = await startHarness();
+  //
+  // The refusal is injected into this gateway's own client rather than into the table. An
+  // earlier version added a `CHECK (false)` constraint to `ForwardIntent` and dropped it in a
+  // `finally`. It proved the same thing, and for the moment the constraint was in place it made
+  // every forward fail in every other suite sharing this database. A test that can only be run
+  // alone teaches people to re-run a suite rather than read it.
+  harness = await startHarness({ prisma: refuseForwardIntent });
   const token = await harness.mint();
 
-  await harness.prisma
-    .$executeRaw`ALTER TABLE "ForwardIntent" ADD CONSTRAINT "temporarily_impossible" CHECK (false) NOT VALID`;
+  const response = await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
 
-  try {
-    const response = await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
-
-    expect(response.statusCode).toBe(500);
-    expect(harness.upstreamRequests).toHaveLength(0);
-  } finally {
-    await harness.prisma
-      .$executeRaw`ALTER TABLE "ForwardIntent" DROP CONSTRAINT "temporarily_impossible"`;
-  }
+  expect(response.statusCode).toBe(500);
+  expect(harness.upstreamRequests).toHaveLength(0);
+  expect(
+    await harness.prisma.forwardIntent.count({ where: { missionId: harness.missionId } }),
+  ).toBe(0);
 });
 
 test('an allowed request leaves an intent and the outcome that followed it', async () => {

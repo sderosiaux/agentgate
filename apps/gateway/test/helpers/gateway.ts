@@ -93,6 +93,15 @@ export interface HarnessOptions {
   engine?: PolicyEngine;
   /** Wraps the real recorder, for the tests about what happens when the trail cannot be written. */
   audit?: (real: AuditRecorder) => AuditRecorder;
+  /**
+   * Wraps the client the *gateway* is built with, leaving the one this harness hands back real.
+   *
+   * For the tests about a database that will not accept a particular write. Doing that by
+   * breaking the actual table — a constraint added and dropped around the assertion — works
+   * exactly once and breaks every other suite running against the same database while it is in
+   * place. This makes the failure local to one gateway.
+   */
+  prisma?: (real: PrismaClient) => PrismaClient;
   /** What the pipeline reads as "now". Mutable, so a test can move the clock. */
   now?: Date;
   /**
@@ -213,7 +222,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   const approvals = createApprovalService(prisma, () => clock.now);
 
   const app = buildApp({
-    prisma,
+    prisma: (options.prisma ?? ((real: PrismaClient) => real))(prisma),
     tokenService,
     secretStore: createDbSecretStore(prisma, MASTER_KEY),
     engine: options.engine ?? createBuiltinEngine(),
