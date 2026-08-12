@@ -163,6 +163,31 @@ test('the credential list shows how a secret is injected, not what it is wrapped
   expect(Object.keys(listed?.injection ?? {})).not.toContain('format');
 });
 
+test('a value too short to be any upstream credential is refused at creation', async () => {
+  // A data-quality check, not a security one: a three-character value is a typo or a
+  // placeholder, and no upstream issues a token that short. Failing it here puts the error on
+  // the call that made the mistake rather than on a 401 from an upstream three steps later.
+  const harness = await start();
+
+  for (const value of ['x', 'TODO', 'changeme']) {
+    const response = await harness.admin('POST', '/api/v1/credentials', {
+      body: credentialBody(`short_${value.length.toString()}`, { value }),
+    });
+
+    expect({ value, status: response.statusCode }).toEqual({ value, status: 400 });
+    expect(response.json()).toMatchObject({ error: 'agentgate_validation_error' });
+  }
+
+  // And the bound is a limit rather than a trap: a value at it is stored like any other.
+  const alias = `atbound_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+  createdAliases.push(alias);
+  const accepted = await harness.admin('POST', '/api/v1/credentials', {
+    body: credentialBody(alias, { value: 'a'.repeat(12) }),
+  });
+
+  expect(accepted.statusCode).toBe(201);
+});
+
 test('an injection spec that would corrupt the upstream request is refused at the boundary', async () => {
   const harness = await start();
 

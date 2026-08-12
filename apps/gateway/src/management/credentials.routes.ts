@@ -11,6 +11,31 @@ export const CREDENTIAL_STATUSES = ['active', 'revoked'] as const;
 /** Long enough for any provider token or private key, short enough to bound a request body. */
 const MAX_SECRET_LENGTH = 8_192;
 
+/**
+ * The shortest string this API will accept as a credential value.
+ *
+ * Not a security control, and nothing downstream depends on it: a credential value is kept out
+ * of logs by the forwarder's per-request denylist, whatever its length. This is a data-quality
+ * check at the boundary where a human types.
+ *
+ * The question it answers is "did a real upstream issue this?", and the answer for anything
+ * under a dozen characters is almost always no. Provider tokens do not come that short — a
+ * GitHub PAT is 40 characters, an AWS secret key is 40, a Stripe key is more. A four-character
+ * value is a typo, a `TODO`, or a placeholder somebody meant to replace, and refusing it here
+ * puts the error on the call that made the mistake instead of surfacing it as an unexplained
+ * 401 from an upstream three steps later.
+ *
+ * Deliberately not `MIN_SENSITIVE_LENGTH`, which happens to sit nearby and answers a different
+ * question — how short a string can be before scrubbing it out of every log line would redact
+ * ordinary English. Tying the two together would imply that keeping a credential out of the
+ * logs depends on this validation. It does not, and it must not start to.
+ *
+ * The cost, stated because it is real: an upstream that issues a genuinely short key cannot be
+ * registered through this API, and there is no override. Nobody has hit that. If somebody does,
+ * this constant is the one line to move.
+ */
+const MIN_SECRET_LENGTH = 12;
+
 const AliasSchema = z
   .string()
   .min(1)
@@ -58,7 +83,11 @@ const CreateCredentialSchema = z.strictObject({
   logicalHost: z.string().min(1).max(MAX_NAME_LENGTH),
   upstreamBaseUrl: UpstreamBaseUrlSchema,
   injection: InjectionSpecInputSchema,
-  value: z.string().min(1).max(MAX_SECRET_LENGTH).describe('Write-only. Never read back.'),
+  value: z
+    .string()
+    .min(MIN_SECRET_LENGTH)
+    .max(MAX_SECRET_LENGTH)
+    .describe('Write-only. Never read back.'),
 });
 
 /** A stored injection spec, read back defensively: the column is Json and may have drifted. */
