@@ -56,7 +56,11 @@ model Approval {
   agentId        String
   resource       String
   action         String
-  requestSummary Json // {method, host, path, bodySize, contentType}
+  /// sha256 over (method, host, normalized path, body hash) — the request a human was shown.
+  /// A grant is spendable only on a request that hashes to this, so "approve the merge of pull
+  /// request 7" cannot be spent on pull request 9. See `requestBindingHash` in approvals/service.ts.
+  requestHash    String
+  requestSummary Json // {method, host, path, bodySize, bodyHash, contentType}
   reason         String
   status         String    @default("pending") // pending | approved | denied | expired | consumed
   requestedAt    DateTime  @default(now())
@@ -71,10 +75,11 @@ model Approval {
   // pending approval for what it is about to refuse, and the management list by status.
   @@index([missionId, status])
 
-  // NOT the whole story: a partial unique index on (missionId, agentId, resource, action)
-  // WHERE status = 'pending' lives in migration 20260811114500_one_pending_approval_per_intent,
-  // because Prisma has no schema spelling for one. It is what stops a burst of retries opening
-  // one approval each — do not let `migrate dev` drop it as drift.
+  // NOT the whole story: a partial unique index on
+  // (missionId, agentId, resource, action, requestHash) WHERE status = 'pending' lives in
+  // migration 20260812093000_approval_request_binding, because Prisma has no schema spelling
+  // for one. It is what stops a burst of retries opening one approval each — do not let
+  // `migrate dev` drop it as drift.
 }
 
 model AuditEvent {

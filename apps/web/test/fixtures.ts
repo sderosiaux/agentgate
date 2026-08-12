@@ -111,6 +111,7 @@ export const PENDING_APPROVAL: Approval = {
     host: 'api.github.com',
     path: '/repos/acme/payments/pulls',
     bodySize: 184,
+    bodyHash: '9f2c1d3b4a5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8',
     contentType: 'application/json',
   },
   status: 'pending',

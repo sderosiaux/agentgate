@@ -131,6 +131,20 @@ function PendingCard({
             </div>
           </dl>
 
+          {/* Said plainly, because it is the difference between approving an action and
+              approving a request: approving this grants the four lines above and nothing else.
+              A retry with another path or another body is a new question. */}
+          <p className="text-ink-faint mt-3 text-xs leading-relaxed">
+            Approving authorises this exact request — method, host, path and body
+            {summary.bodyHash === undefined ? null : (
+              <>
+                {' '}
+                (<span className="ident">{summary.bodyHash.slice(0, 12)}</span>)
+              </>
+            )}
+            . Once, within five minutes.
+          </p>
+
           <p className="text-ink-muted mt-3 text-xs leading-relaxed">
             <span className="eyebrow mr-2">Mission</span>
             <Link

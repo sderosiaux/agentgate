@@ -79,12 +79,16 @@ test('a gated action answers 202 with the approval a human now has to decide', a
     decidedAt: null,
     grantExpiresAt: null,
   });
-  // What a human needs to decide, and nothing from the body itself (D10).
+  // What a human needs to decide, and nothing from the body itself (D10). The hash is what the
+  // grant is pinned to, so it belongs next to the rest of the summary rather than only in the
+  // binding: an operator asking whether the request that was made is the request that was
+  // approved can compare it against the audit row.
   expect(approval.requestSummary).toEqual({
     method: 'POST',
     host: 'api.github.com',
     path: '/repos/acme/payments/pulls',
     bodySize: 33,
+    bodyHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     contentType: 'application/json',
   });
 

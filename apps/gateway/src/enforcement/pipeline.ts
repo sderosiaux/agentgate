@@ -19,7 +19,11 @@ import {
   type NetworkRules,
 } from '@agentgate/shared';
 import { z } from 'zod';
-import type { ApprovalService, ConsumeOutcome } from '../approvals/service.js';
+import {
+  requestBindingHash,
+  type ApprovalService,
+  type ConsumeOutcome,
+} from '../approvals/service.js';
 import type { AuditDecision, AuditRecorder, PolicyInputSnapshot } from '../audit/recorder.js';
 import type { PrismaClient } from '../db.js';
 import { parseBearer } from '../http/bearer.js';
@@ -598,11 +602,20 @@ async function execute(
     // being spent or a question being asked. Everything below is untouched — a consumed grant
     // continues down the ALLOW path, which is what makes an approval a permission for exactly
     // one request rather than a second, parallel way to reach the upstream.
+    // What the human is being asked about, hashed. The four class fields say what kind of thing
+    // this is; `requestHash` says which one. Without it an approval for a benign merge is a
+    // grant for every merge on the repository, and the substitution leaves no trace.
     const binding = {
       missionId: mission.id,
       agentId: claims.agentId,
       resource: mapped.resource,
       action: mapped.action,
+      requestHash: requestBindingHash({
+        method: request.method,
+        host: normalized.host,
+        path: normalized.path,
+        bodyHash: attempt.bodyHash,
+      }),
     };
 
     if (request.approvalId !== undefined) {
@@ -626,6 +639,10 @@ async function execute(
           host: normalized.host,
           path: normalized.path,
           ...(attempt.bodySize === undefined ? {} : { bodySize: attempt.bodySize }),
+          // The hash the grant is pinned to, shown next to the rest. A human deciding cannot
+          // read a body they are not given, but an operator asking later whether the request
+          // that was made is the request that was approved can compare two hex strings.
+          ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
           ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
         },
       });

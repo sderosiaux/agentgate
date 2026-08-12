@@ -104,6 +104,8 @@ export interface Approval {
     host: string;
     path: string;
     bodySize?: number;
+    /** Absent on an approval recorded before grants were pinned to a concrete request. */
+    bodyHash?: string;
     contentType?: string;
   };
   status: string;

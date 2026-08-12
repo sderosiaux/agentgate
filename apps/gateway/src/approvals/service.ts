@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AgentGateError, newId } from '@agentgate/shared';
 import { z } from 'zod';
 import type { PrismaClient } from '../db.js';
@@ -17,15 +18,20 @@ export const APPROVAL_STATUSES = ['pending', 'approved', 'denied', 'expired', 'c
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 /**
- * The four things a grant is bound to (SPEC D7). Deliberately not the body: an approved
- * `pull_request.create` does not pin the title or the branch, which THREAT_MODEL.md records
- * as a prototype limitation rather than an oversight.
+ * What a grant is bound to (SPEC D7).
+ *
+ * The first four are the class of thing being done. They were once the whole binding, and that
+ * was the hole: a human approving "merge pull request 7" was issuing a grant that read "some
+ * `pull_request.merge` on this repository by this agent", and the agent could spend it on pull
+ * request 9. `requestHash` is the concrete request the human was actually shown.
  */
 export interface ApprovalBinding {
   missionId: string;
   agentId: string;
   resource: string;
   action: string;
+  /** See {@link requestBindingHash}. */
+  requestHash: string;
 }
 
 /** What a human needs to see to decide. Metadata only — never the body (D10). */
@@ -34,7 +40,45 @@ export interface ApprovalRequestSummary {
   host: string;
   path: string;
   bodySize?: number | undefined;
+  /** The same hash the binding is built from, so the record shows what the grant is pinned to. */
+  bodyHash?: string | undefined;
   contentType?: string | undefined;
+}
+
+/**
+ * The digest of a request with nothing in it.
+ *
+ * A request that carries no body and a request that carries an empty one send the same bytes
+ * upstream, so they are the same question and get the same hash. Spelling it out is what keeps
+ * the binding out of SQL's NULL semantics: a nullable `requestHash` compared with `=` would
+ * never match itself, and the consume would fail for every bodyless request.
+ */
+const EMPTY_BODY_HASH = createHash('sha256').update('', 'utf8').digest('hex');
+
+/**
+ * The request a grant is spendable on, as one string.
+ *
+ * The four fields the approval record already shows a human, and the four the pipeline already
+ * computes. JSON rather than a separator, so a path or a host cannot be written to look like
+ * the field boundary and make two different requests hash the same.
+ */
+export function requestBindingHash(request: {
+  method: string;
+  host: string;
+  path: string;
+  bodyHash?: string | undefined;
+}): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        request.method,
+        request.host,
+        request.path,
+        request.bodyHash ?? EMPTY_BODY_HASH,
+      ]),
+      'utf8',
+    )
+    .digest('hex');
 }
 
 export interface CreatePendingInput extends ApprovalBinding {
@@ -82,8 +126,11 @@ export interface ApprovalListFilter {
 export interface ApprovalService {
   /**
    * The pending record a REQUIRE_APPROVAL leaves behind — or the one already waiting for the
-   * same (mission, resource, action), so that an agent retrying its request asks a human once
-   * rather than once per retry.
+   * same request, so that an agent retrying asks a human once rather than once per retry.
+   *
+   * "The same request" is the whole binding, `requestHash` included. Two merges of two
+   * different pull requests are two questions and wait side by side; folding them into one
+   * record would hand the second a decision nobody made about it.
    */
   createPending(input: CreatePendingInput): Promise<{ approvalId: string; created: boolean }>;
   approve(id: string, decidedBy: string): Promise<ApprovalView>;
@@ -105,6 +152,7 @@ const RequestSummarySchema = z
     host: z.string(),
     path: z.string(),
     bodySize: z.number().int().nonnegative().optional(),
+    bodyHash: z.string().optional(),
     contentType: z.string().optional(),
   })
   .catch({ method: '', host: '', path: '' });
@@ -117,6 +165,7 @@ interface ApprovalRow {
   agentId: string;
   resource: string;
   action: string;
+  requestHash: string;
   reason: string;
   requestSummary: unknown;
   status: string;
@@ -149,14 +198,15 @@ function classify(row: ApprovalRow | null, binding: ApprovalBinding, now: Date):
     return 'not_found';
   }
 
-  // Checked before the status: a grant pointed at another mission, agent, resource or action is
-  // wrong about *what* it authorises, which is a more useful thing to read in the trail than
-  // whatever state it happens to be in.
+  // Checked before the status: a grant pointed at another mission, agent, resource, action or
+  // request is wrong about *what* it authorises, which is a more useful thing to read in the
+  // trail than whatever state it happens to be in.
   if (
     row.missionId !== binding.missionId ||
     row.agentId !== binding.agentId ||
     row.resource !== binding.resource ||
-    row.action !== binding.action
+    row.action !== binding.action ||
+    row.requestHash !== binding.requestHash
   ) {
     return 'mismatch';
   }
@@ -215,7 +265,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
     return prisma.approval.findUnique({ where: { id } });
   }
 
-  /** The one row the partial unique index allows for an intent, if it exists yet. */
+  /** The one row the partial unique index allows for a request, if it exists yet. */
   async function findPending(binding: ApprovalBinding): Promise<ApprovalRow | null> {
     return prisma.approval.findFirst({
       where: {
@@ -223,6 +273,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
         agentId: binding.agentId,
         resource: binding.resource,
         action: binding.action,
+        requestHash: binding.requestHash,
         status: 'pending',
       },
     });
@@ -297,6 +348,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
               agentId: input.agentId,
               resource: input.resource,
               action: input.action,
+              requestHash: input.requestHash,
               reason: input.reason,
               requestSummary: { ...input.requestSummary },
               status: 'pending',
@@ -315,7 +367,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
       }
 
       throw new Error(
-        `Could not open an approval for ${input.action} on ${input.resource}: the pending row kept changing underneath`,
+        `Could not open an approval for ${input.action} on ${input.resource} (${input.requestSummary.method} ${input.requestSummary.path}): the pending row kept changing underneath`,
       );
     },
 
@@ -333,6 +385,10 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
       // The whole of D7 in one statement: a grant is spent by the update that checks it, so two
       // callers racing for the same approval cannot both be told yes. Everything after this is
       // only ever explaining a "no" — it can read a stale row without changing the answer.
+      //
+      // `requestHash` is one more equality in the same statement, deliberately: splitting the
+      // binding check out into a read before the update would give back the atomicity this was
+      // written for, and two retries racing on one grant could both pass the check.
       const consumed = await prisma.$queryRaw<{ id: string }[]>`
         UPDATE "Approval"
            SET "status" = 'consumed', "consumedAt" = ${now}
@@ -343,6 +399,7 @@ export function createApprovalService(prisma: PrismaClient, clock: () => Date): 
            AND "agentId" = ${binding.agentId}
            AND "resource" = ${binding.resource}
            AND "action" = ${binding.action}
+           AND "requestHash" = ${binding.requestHash}
         RETURNING "id"
       `;
 

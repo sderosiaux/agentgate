@@ -4,6 +4,7 @@ import { createPrismaClient, type PrismaClient } from '../src/db.js';
 import {
   APPROVAL_GRANT_TTL_MS,
   createApprovalService,
+  requestBindingHash,
   type ApprovalService,
 } from '../src/approvals/service.js';
 
@@ -32,21 +33,31 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/** The request every approval in this file is about, in the shape the pipeline hands over. */
+const SUMMARY = {
+  method: 'POST',
+  host: 'api.github.com',
+  path: '/repos/acme/payments/pulls',
+  bodySize: 42,
+  bodyHash: 'a'.repeat(64),
+  contentType: 'application/json',
+} as const;
+
 function binding() {
-  return { missionId, agentId, resource: 'github:acme/payments', action: 'pull_request.create' };
+  return {
+    missionId,
+    agentId,
+    resource: 'github:acme/payments',
+    action: 'pull_request.create',
+    requestHash: requestBindingHash(SUMMARY),
+  };
 }
 
 async function pending() {
   return service.createPending({
     ...binding(),
     reason: 'Creating a pull request requires human approval.',
-    requestSummary: {
-      method: 'POST',
-      host: 'api.github.com',
-      path: '/repos/acme/payments/pulls',
-      bodySize: 42,
-      contentType: 'application/json',
-    },
+    requestSummary: { ...SUMMARY },
   });
 }
 
@@ -168,16 +179,11 @@ test('a pending approval records what was asked, and nothing has been decided ye
     grantExpiresAt: null,
     consumedAt: null,
   });
-  expect(row.requestSummary).toEqual({
-    method: 'POST',
-    host: 'api.github.com',
-    path: '/repos/acme/payments/pulls',
-    bodySize: 42,
-    contentType: 'application/json',
-  });
+  expect(row.requestSummary).toEqual({ ...SUMMARY });
+  expect(row.requestHash).toBe(requestBindingHash(SUMMARY));
 });
 
-test('asking twice for the same action returns the pending approval already waiting', async () => {
+test('asking twice for the same request returns the pending approval already waiting', async () => {
   const first = await pending();
   const second = await pending();
 
@@ -194,17 +200,18 @@ test('sixteen callers asking at once end up with one question, not sixteen', asy
   expect(await prisma.approval.count({ where: { missionId } })).toBe(1);
 });
 
-test('one pending approval per intent is a database constraint, not a convention', async () => {
+test('one pending approval per request is a database constraint, not a convention', async () => {
   const { approvalId } = await pending();
 
   await expect(
     prisma.approval.create({
       data: {
-        id: 'apr_second_for_the_same_intent',
+        id: 'apr_second_for_the_same_request',
         missionId,
         agentId,
         resource: 'github:acme/payments',
         action: 'pull_request.create',
+        requestHash: requestBindingHash(SUMMARY),
         reason: 'a second question about the same thing',
         requestSummary: { method: 'POST', host: 'api.github.com', path: '/x' },
         status: 'pending',
@@ -213,7 +220,7 @@ test('one pending approval per intent is a database constraint, not a convention
     }),
   ).rejects.toMatchObject({ code: 'P2002' });
 
-  // A decided intent frees the slot: the constraint is on questions still waiting, not on
+  // A decided question frees the slot: the constraint is on questions still waiting, not on
   // every approval an agent ever asked for.
   await service.deny(approvalId, 'alice');
   expect((await pending()).created).toBe(true);
@@ -238,7 +245,7 @@ test('another mission asking for the same action gets its own approval', async (
     ...binding(),
     missionId: otherMission,
     reason: 'Creating a pull request requires human approval.',
-    requestSummary: { method: 'POST', host: 'api.github.com', path: '/repos/acme/payments/pulls' },
+    requestSummary: { ...SUMMARY },
   });
 
   expect(theirs.approvalId).not.toBe(mine.approvalId);
@@ -303,7 +310,7 @@ test('two callers racing for the same grant: exactly one wins', async () => {
   expect(outcomes.filter((outcome) => outcome === 'already_consumed')).toHaveLength(7);
 });
 
-test('a grant is bound to the four things it was granted for', async () => {
+test('a grant is bound to the five things it was granted for', async () => {
   const { approvalId } = await pending();
   await service.approve(approvalId, 'alice');
 
@@ -319,8 +326,16 @@ test('a grant is bound to the four things it was granted for', async () => {
   expect(
     await service.tryConsume(approvalId, { ...binding(), missionId: 'mis_someone_else' }),
   ).toBe('mismatch');
+  // The fifth is the one that was missing: same mission, same agent, same resource, same
+  // action, a different concrete request.
+  expect(
+    await service.tryConsume(approvalId, {
+      ...binding(),
+      requestHash: requestBindingHash({ ...SUMMARY, path: '/repos/acme/payments/pulls/9/merge' }),
+    }),
+  ).toBe('mismatch');
 
-  // None of the four attempts spent it.
+  // None of the five attempts spent it.
   expect(await service.tryConsume(approvalId, binding())).toBe('consumed');
 });
 
@@ -366,22 +381,24 @@ test('the approval lookups this module makes have an index behind them', async (
 
   expect(indexes.map((index) => index.indexname)).toContain('Approval_missionId_status_idx');
   // Partial, so Prisma cannot declare it and only the migration keeps it alive.
-  expect(indexes.map((index) => index.indexname)).toContain('Approval_pending_intent_key');
+  expect(indexes.map((index) => index.indexname)).toContain('Approval_pending_request_key');
 });
 
 test('the list is filtered by status and by mission, newest first', async () => {
   const first = await pending();
   await service.approve(first.approvalId, 'alice');
   clock.now = new Date(clock.now.getTime() + 1_000);
+  const otherRequest = {
+    method: 'POST',
+    host: 'api.github.com',
+    path: '/repos/acme/payments/git/refs',
+  };
   const second = await service.createPending({
     ...binding(),
     action: 'branch.create',
+    requestHash: requestBindingHash(otherRequest),
     reason: 'gated',
-    requestSummary: {
-      method: 'POST',
-      host: 'api.github.com',
-      path: '/repos/acme/payments/git/refs',
-    },
+    requestSummary: otherRequest,
   });
 
   const all = await service.list({ missionId });
