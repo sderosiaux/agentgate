@@ -1,7 +1,7 @@
 import { createTokenService } from '@agentgate/auth';
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, expect, test } from 'vitest';
-import { startHarness, type Harness } from './helpers/gateway.js';
+import { DEFAULT_PERMISSIONS, startHarness, type Harness } from './helpers/gateway.js';
 
 let harness: Harness;
 
@@ -340,18 +340,39 @@ test('unknown, revoked and out-of-scope aliases are indistinguishable to the age
   expect(bodies[0]).toContain('agentgate_unknown_credential');
 });
 
-test('the trail still tells the three credential refusals apart, server-side', async () => {
-  // A revoked credential being exercised is not the same event as an alias nobody ever had:
-  // one is a typo, the other is something still holding a key that was taken away.
+test('the trail still tells the credential refusals apart, server-side', async () => {
+  // A revoked credential being exercised is not the same event as an alias this mission was
+  // never issued: one is something still holding a key that was taken away, the other is an
+  // agent reaching for a key that is not its own.
+  //
+  // `no_such_alias` stops at `credential-not-in-mission` rather than at `credential-unknown`,
+  // and that is the fix rather than a loss: the mission is asked first, so the gateway does not
+  // find out whether the alias exists and cannot leak it. `credential-unknown` is now reachable
+  // only for an alias the mission lists and the store does not have — an operator's own typo in
+  // a mission document, which is exactly who that tag is for.
   harness = await startHarness({ credentialStatus: 'revoked' });
   const token = await harness.mint();
 
+  // The mission is issued a second alias that the store does not have, so that the tag for
+  // "listed, but no such credential" is still reachable and still tested.
+  await harness.prisma.mission.update({
+    where: { id: harness.missionId },
+    data: {
+      permissions: {
+        ...DEFAULT_PERMISSIONS,
+        allowedCredentials: [harness.alias, 'no_such_alias'],
+      },
+    },
+  });
+
   await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
   await harness.proxy({ credential: 'no_such_alias', ...READ_PAYMENTS }, token);
+  await harness.proxy({ credential: 'someone_elses_alias', ...READ_PAYMENTS }, token);
 
   expect((await auditRow(harness)).map((row) => row.matchedPolicy)).toEqual([
     'credential-revoked',
     'credential-unknown',
+    'credential-not-in-mission',
   ]);
 });
 
@@ -502,7 +523,8 @@ test('no refusal ever leaves the trail without saying which stage made it', asyn
   expect(rows.map((row) => row.matchedPolicy)).toEqual([
     'request-invalid-envelope',
     'request-invalid-url',
-    'credential-unknown',
+    // An alias the mission does not list is refused by the mission, before the store is read.
+    'credential-not-in-mission',
     'network-default-deny',
   ]);
 });

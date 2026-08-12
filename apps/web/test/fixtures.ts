@@ -60,6 +60,7 @@ export const DECISION_WITH_SNAPSHOT: DecisionRecord = {
         allowedActions: ['repo.read', 'pull_request.create'],
         approvalActions: ['pull_request.create'],
         deniedActions: ['pull_request.merge'],
+        allowedCredentials: ['github_work'],
       },
       network: { allow: [{ host: 'api.github.com' }], deny: [] },
       expiresAt: '2026-08-11T10:00:00.000Z',

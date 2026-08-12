@@ -27,6 +27,7 @@ permissions_with(allowed, approval, denied) := {
 	"allowedActions": allowed,
 	"approvalActions": approval,
 	"deniedActions": denied,
+	"allowedCredentials": ["github_work"],
 }
 
 payments := {"provider": "github", "id": "acme/payments"}
@@ -303,9 +304,35 @@ test_empty_input_denies if {
 
 test_scope_has_no_wildcard if {
 	result := agentgate.decision with input as input_with(
-		{"resources": ["github:acme/*"], "allowedActions": ["repo.read"], "approvalActions": [], "deniedActions": []},
+		{
+			"resources": ["github:acme/*"],
+			"allowedActions": ["repo.read"],
+			"approvalActions": [],
+			"deniedActions": [],
+			"allowedCredentials": [],
+		},
 		payments,
 		reads,
 	)
 	result.matchedPolicy == "mission-resource-scope"
+}
+
+# A permissions document written before credentials were bound to missions. It is not a document
+# this policy may answer: the gateway refuses it, and so must the engine.
+test_absent_allowed_credentials_denies if {
+	result := agentgate.decision with input as input_with(
+		{
+			"resources": scope,
+			"allowedActions": ["repo.read"],
+			"approvalActions": [],
+			"deniedActions": [],
+		},
+		payments,
+		reads,
+	)
+	result == {
+		"decision": "DENY",
+		"reason": "policy input is not well formed",
+		"matchedPolicy": "mission-default-deny",
+	}
 }

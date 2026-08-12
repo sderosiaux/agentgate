@@ -1,4 +1,4 @@
-import type { MissionPermissions, NetworkRules } from '@agentgate/shared';
+import type { NetworkRules } from '@agentgate/shared';
 import { afterEach, expect, test } from 'vitest';
 import { APPROVAL_GRANT_TTL_MS } from '../src/approvals/service.js';
 import {
@@ -7,6 +7,7 @@ import {
   startHarness,
   type Harness,
   type HarnessOptions,
+  type PermissionsWithoutCredentials,
 } from './helpers/gateway.js';
 
 const started: Harness[] = [];
@@ -217,7 +218,7 @@ test('two retries racing on one grant: exactly one reaches the upstream', async 
   expect(harness.upstreamRequests).toHaveLength(1);
 });
 
-const TWO_GATED_ACTIONS: MissionPermissions = {
+const TWO_GATED_ACTIONS: PermissionsWithoutCredentials = {
   ...DEFAULT_PERMISSIONS,
   approvalActions: ['pull_request.create', 'branch.create'],
 };

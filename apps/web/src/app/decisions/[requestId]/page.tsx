@@ -6,7 +6,7 @@ import { JsonBlock } from '@/components/JsonBlock';
 import { ErrorPanel, Field, PageHeader, Panel } from '@/components/Panel';
 import { api, describeError, GatewayError } from '@/lib/api';
 import { absoluteTime, bytes } from '@/lib/format';
-import { readSnapshot, refusalStage, type Slice } from '@/lib/snapshot';
+import { CREDENTIAL_TERM, readSnapshot, refusalStage, type Slice } from '@/lib/snapshot';
 import type { DecisionRecord } from '@/lib/types';
 
 /** The formula, printed as a formula. This is the screen the whole product is about. */
@@ -173,6 +173,18 @@ export default async function DecisionPage({
                 <>
                   <Plus />
                   <SliceCard slice={snapshot.network} />
+                </>
+              ) : null}
+              {slice.term === 'Action' && snapshot.credentialAlias !== null ? (
+                <>
+                  <Plus />
+                  <SliceCard
+                    slice={{
+                      term: CREDENTIAL_TERM.term,
+                      note: CREDENTIAL_TERM.note,
+                      value: { alias: snapshot.credentialAlias },
+                    }}
+                  />
                 </>
               ) : null}
             </div>

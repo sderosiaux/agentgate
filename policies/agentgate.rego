@@ -63,11 +63,17 @@ covered_by(list) if {
 # denying and the request would land on whatever the next branch says. Measured on a live
 # server: with an `[]` fallback all six corrupted-list cases still came back ALLOW. The only
 # answer to a permissions document we cannot read is to refuse it.
+#
+# `allowedCredentials` is checked here even though no rule below reads it. The gateway pipeline
+# is what enforces it (D3 step 5a), and it enforces it by listing: a document where that list is
+# absent or is not a list is one the pipeline refuses outright, so an engine that went on to
+# answer the same document would be answering a question the gateway never asked.
 permissions_well_formed if {
 	is_array(input.mission.permissions.resources)
 	is_array(input.mission.permissions.allowedActions)
 	is_array(input.mission.permissions.approvalActions)
 	is_array(input.mission.permissions.deniedActions)
+	is_array(input.mission.permissions.allowedCredentials)
 }
 
 decision := {

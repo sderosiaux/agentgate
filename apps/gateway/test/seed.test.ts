@@ -122,6 +122,7 @@ test('a mission document that does not match the shared schema is rejected', () 
       allowedActions: ['repo.read'],
       approvalActions: [],
       deniedActions: [],
+      allowedCredentials: ['github_work'],
     },
     network: { allow: [{ host: 'api.github.com', methods: ['GET'] }], deny: [] },
     limits: { maxRequests: 500, maxBytes: 50_000_000, requestsPerMinute: 60 },

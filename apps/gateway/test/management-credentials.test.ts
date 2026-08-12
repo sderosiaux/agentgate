@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, test } from 'vitest';
 import { decryptSecret } from '../src/secrets/index.js';
-import { MASTER_KEY, startHarness, type Harness } from './helpers/gateway.js';
+import { MASTER_KEY, permissionsWith, startHarness, type Harness } from './helpers/gateway.js';
 
 const started: Harness[] = [];
 const createdAliases: string[] = [];
@@ -262,6 +262,13 @@ test('a credential created through the API is one the enforcement path can actua
     }),
   });
   expect(created.statusCode).toBe(201);
+
+  // Registering a credential does not hand it to anybody: a mission has to name it (D2). This
+  // is the second half of "wired up" — without it the request below is refused at step 5a.
+  await harness.prisma.mission.update({
+    where: { id: harness.missionId },
+    data: { permissions: permissionsWith(alias) },
+  });
 
   const response = await harness.proxy(
     { credential: alias, method: 'GET', url: 'https://api.github.com/repos/acme/payments' },

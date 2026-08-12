@@ -13,7 +13,12 @@
     "would refuse both requests one stage earlier and demonstrate the opposite.",
     "",
     "pull_request.merge is defence in depth: nothing routes a PUT, so no request reaches the engine",
-    "to be judged against it today. It is listed so the action is already refused the day a rule does."
+    "to be judged against it today. It is listed so the action is already refused the day a rule does.",
+    "",
+    "allowedCredentials names the one alias this mission may spend. The seed registers exactly one,",
+    "so the list looks like a formality here — it is not. Without it the alias in a proxy envelope",
+    "is the agent's free choice, and every credential in the store is reachable by every mission",
+    "that happens to share its logical host."
   ],
   "intent": "Investigate issue #423 and create a pull request",
   "permissions": {
@@ -26,7 +31,8 @@
       "pull_request.create"
     ],
     "approvalActions": ["pull_request.create"],
-    "deniedActions": ["pull_request.merge", "repository.delete"]
+    "deniedActions": ["pull_request.merge", "repository.delete"],
+    "allowedCredentials": ["github_work"]
   },
   "network": {
     "allow": [

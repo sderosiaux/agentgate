@@ -15,7 +15,16 @@ function permissions(
   approvalActions: string[],
   deniedActions: string[],
 ): MissionPermissions {
-  return { resources, allowedActions, approvalActions, deniedActions };
+  // No engine reads `allowedCredentials` — the gateway pipeline enforces it before either one
+  // is called. It is here because both engines refuse a permissions document without it, and a
+  // matrix built on documents neither would accept would be testing nothing.
+  return {
+    resources,
+    allowedActions,
+    approvalActions,
+    deniedActions,
+    allowedCredentials: ['github_work'],
+  };
 }
 
 const PAYMENTS = { provider: 'github', id: 'acme/payments' };
@@ -280,6 +289,7 @@ export function inputFor(decisionCase: DecisionCase): PolicyInput {
     },
     resource: decisionCase.resource,
     action: decisionCase.action,
+    credentialAlias: 'github_work',
     network: { host: 'api.github.com', path: '/repos/acme/payments' },
     environment: { name: 'test' },
     currentState: { requestCount: 0, bytesTotal: 0 },
@@ -438,6 +448,25 @@ export const MALFORMED_INPUTS: readonly { name: string; input: unknown }[] = [
       allowedActions: 'repo.read',
       approvalActions: [],
       deniedActions: [],
+    }),
+  },
+  {
+    name: 'the permissions document predates allowedCredentials',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+      deniedActions: [],
+    }),
+  },
+  {
+    name: 'allowedCredentials is a string naming one alias instead of a list',
+    input: withPermissions({
+      resources: ['github:acme/payments'],
+      allowedActions: ['repo.read'],
+      approvalActions: [],
+      deniedActions: [],
+      allowedCredentials: 'github_work',
     }),
   },
   { name: 'the input is an empty object', input: {} },

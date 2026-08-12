@@ -18,6 +18,7 @@ const seededPermissions = {
   ],
   approvalActions: ['pull_request.create'],
   deniedActions: ['pull_request.merge', 'repository.delete'],
+  allowedCredentials: ['github_work'],
 };
 
 const seededNetwork = {
@@ -50,6 +51,22 @@ test('permissions require every action list, as arrays of strings', () => {
 
   const { approvalActions: _omitted, ...withoutApproval } = seededPermissions;
   expect(() => MissionPermissionsSchema.parse(withoutApproval)).toThrow();
+});
+
+test('a permissions document with no credential list is not a permissions document', () => {
+  // The shape every mission written before credentials were bound to missions has. It must not
+  // parse: a document the gateway cannot read grants nothing, whereas a document that parsed
+  // with `allowedCredentials` quietly missing would have to be given a default — and the only
+  // default that is not a hole is the empty list, which an operator should have to write.
+  const { allowedCredentials: _omitted, ...legacy } = seededPermissions;
+  expect(() => MissionPermissionsSchema.parse(legacy)).toThrow();
+
+  expect(() =>
+    MissionPermissionsSchema.parse({ ...seededPermissions, allowedCredentials: 'github_work' }),
+  ).toThrow();
+  expect(
+    MissionPermissionsSchema.parse({ ...seededPermissions, allowedCredentials: [] }),
+  ).toMatchObject({ allowedCredentials: [] });
 });
 
 test('network rules reject an empty host', () => {

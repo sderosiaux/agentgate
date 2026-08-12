@@ -8,6 +8,18 @@ export const MissionPermissionsSchema = z.strictObject({
   allowedActions: z.array(z.string()),
   approvalActions: z.array(z.string()),
   deniedActions: z.array(z.string()),
+  /**
+   * The credential aliases this mission may spend, by name (D2).
+   *
+   * Without it the alias in a proxy envelope was an agent's free choice: every alias in the
+   * store was selectable by every mission, and the only thing standing between a read-only
+   * mission and a production admin key was that the two happened to name different hosts.
+   *
+   * Required, and required for a reason. A mission document written before this field existed
+   * fails to parse, and an unparseable mission grants nothing — which is the answer that keeps
+   * the hole shut. `allowedCredentials: []` is the same "nothing", said deliberately.
+   */
+  allowedCredentials: z.array(z.string()),
 });
 
 // Methods are stored and compared uppercase, the casing HTTP itself uses on the wire, so

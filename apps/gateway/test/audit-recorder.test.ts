@@ -148,6 +148,7 @@ const HONEST_PERMISSIONS = {
   allowedActions: ['repo.read'],
   approvalActions: [],
   deniedActions: [],
+  allowedCredentials: ['github_work'],
 };
 
 test('a credential-shaped key buried in the mission scope is refused', async () => {

@@ -40,6 +40,7 @@ describe('createBuiltinEngine', () => {
       allowedActions: ['repo.read'],
       approvalActions: [],
       deniedActions: ['toString', '__proto__', 'constructor'],
+      allowedCredentials: [],
     };
 
     await expect(engine.evaluate(input)).resolves.toEqual(SAMPLE_CASE.expected);

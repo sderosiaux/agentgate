@@ -27,6 +27,8 @@ export interface Permissions {
   allowedActions: string[];
   approvalActions: string[];
   deniedActions: string[];
+  /** The credential aliases this mission may spend. Empty means it may spend none. */
+  allowedCredentials: string[];
   /** False when the column held something this console could not read as a permissions document. */
   readable: boolean;
 }
@@ -38,6 +40,7 @@ export function readPermissions(value: unknown): Permissions {
       allowedActions: [],
       approvalActions: [],
       deniedActions: [],
+      allowedCredentials: [],
       readable: false,
     };
   }
@@ -47,6 +50,7 @@ export function readPermissions(value: unknown): Permissions {
     allowedActions: strings(value.allowedActions),
     approvalActions: strings(value.approvalActions),
     deniedActions: strings(value.deniedActions),
+    allowedCredentials: strings(value.allowedCredentials),
     readable: true,
   };
 }

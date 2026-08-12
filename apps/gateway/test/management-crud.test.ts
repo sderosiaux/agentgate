@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'vitest';
 import {
   DEFAULT_LIMITS,
   DEFAULT_NETWORK,
-  DEFAULT_PERMISSIONS,
+  permissionsWith,
   startHarness,
   type Harness,
 } from './helpers/gateway.js';
@@ -37,6 +37,9 @@ function inAnHour(): string {
   return new Date(Date.now() + 60 * 60 * 1000).toISOString();
 }
 
+/** A mission written through the API names the credentials it may spend, like any other. */
+const MISSION_PERMISSIONS = permissionsWith('github_work');
+
 /** The whole chain a demo needs: a principal, an agent under it, a mission for that agent. */
 async function createChain(harness: Harness): Promise<{
   principalId: string;
@@ -62,7 +65,7 @@ async function createChain(harness: Harness): Promise<{
       principalId,
       agentId,
       intent: 'Investigate issue #423',
-      permissions: DEFAULT_PERMISSIONS,
+      permissions: MISSION_PERMISSIONS,
       network: DEFAULT_NETWORK,
       limits: DEFAULT_LIMITS,
       expiresAt: inAnHour(),
@@ -102,7 +105,7 @@ test('a principal, an agent and a mission can be created and read back', async (
     agentId,
     status: 'active',
     environment: 'development',
-    permissions: DEFAULT_PERMISSIONS,
+    permissions: MISSION_PERMISSIONS,
     network: DEFAULT_NETWORK,
     limits: DEFAULT_LIMITS,
     // No request has been made on it, and zero is the honest reading of that.
@@ -164,7 +167,7 @@ test('mission create refuses scope the policy engine could not read', async () =
     principalId,
     agentId,
     intent: 'Something',
-    permissions: DEFAULT_PERMISSIONS,
+    permissions: MISSION_PERMISSIONS,
     network: DEFAULT_NETWORK,
     limits: DEFAULT_LIMITS,
     expiresAt: inAnHour(),
@@ -175,7 +178,7 @@ test('mission create refuses scope the policy engine could not read', async () =
     // a mission ends up granting something its author did not write.
     [
       'unknown permission field',
-      { ...base, permissions: { ...DEFAULT_PERMISSIONS, allow: ['*'] } },
+      { ...base, permissions: { ...MISSION_PERMISSIONS, allow: ['*'] } },
     ],
     ['permissions of the wrong shape', { ...base, permissions: { resources: 'github:acme/*' } }],
     [
@@ -209,7 +212,7 @@ test('a mission cannot name an agent that belongs to somebody else', async () =>
       principalId: otherPrincipalId,
       agentId,
       intent: 'Borrow an agent',
-      permissions: DEFAULT_PERMISSIONS,
+      permissions: MISSION_PERMISSIONS,
       network: DEFAULT_NETWORK,
       limits: DEFAULT_LIMITS,
       expiresAt: inAnHour(),

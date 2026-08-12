@@ -215,9 +215,9 @@ function denied(
 }
 
 /**
- * The single answer to every way a credential can fail to be usable: absent, revoked, or
- * scoped to another host. One wording, so an agent cannot tell which of the three it hit and
- * turn the gateway into a directory of the aliases that exist.
+ * The single answer to every way a credential can fail to be usable: outside the mission,
+ * absent, revoked, or scoped to another host. One wording, so an agent cannot tell which of the
+ * four it hit and turn the gateway into a directory of the aliases that exist.
  */
 const CREDENTIAL_REFUSAL = (alias: string): string => `credential ${alias} is unknown`;
 
@@ -434,7 +434,25 @@ async function execute(
   attempt.destHost = normalized.host;
   attempt.destPath = normalized.path;
 
-  // 5 — the credential, by metadata only. Nothing is decrypted before a verdict exists, and the
+  // 5a — is this alias one the mission was issued? Asked of the mission document alone, before
+  // the store is touched at all (D2).
+  //
+  // The order is the control. Reading the row first and comparing afterwards would answer two
+  // questions where the agent is entitled to one: an alias that exists and is not this
+  // mission's would fail later and differently from an alias that names nothing, and the pair
+  // of refusals is a directory of the credential store, one guess at a time. Nothing is read,
+  // so there is nothing to tell apart — same code, same status, same sentence as every other
+  // credential refusal, and only the trail knows which of them it was.
+  if (!documents.permissions.allowedCredentials.includes(request.credential)) {
+    denied(
+      attempt,
+      'credential-not-in-mission',
+      CREDENTIAL_REFUSAL(request.credential),
+      'agentgate_unknown_credential',
+    );
+  }
+
+  // 5b — the credential, by metadata only. Nothing is decrypted before a verdict exists, and the
   // explicit `select` is what makes that structural rather than a promise: the ciphertext is
   // not fetched, so no amount of later code can decrypt it from here.
   const credential = await deps.prisma.credential.findUnique({
@@ -539,6 +557,10 @@ async function execute(
       id: mapped.resource.slice(separator + 1),
     },
     action: { type: mapped.action, method: request.method.toUpperCase() },
+    // The alias, already checked against the mission at step 5a. Passed on so a rule can be
+    // written about which key an action is taken with — "merge, but not with the release
+    // credential" — rather than only about the action itself.
+    credentialAlias: credential.alias,
     network: { host: normalized.host, path: normalized.path },
     environment: { name: mission.environment },
     currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },

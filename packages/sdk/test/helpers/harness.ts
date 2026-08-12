@@ -33,7 +33,8 @@ const ADMIN_TOKEN = 'sdk-harness-admin-token';
 
 const MASTER_KEY = Buffer.alloc(32, 0x3a).toString('base64');
 
-export const DEFAULT_PERMISSIONS: MissionPermissions = {
+/** The alias is generated per harness, so it is filled in where the mission is written. */
+export const DEFAULT_PERMISSIONS: Omit<MissionPermissions, 'allowedCredentials'> = {
   resources: ['github:acme/payments'],
   allowedActions: ['repo.read', 'issue.read', 'pull_request.read', 'pull_request.create'],
   approvalActions: ['pull_request.create'],
@@ -61,7 +62,7 @@ const DEFAULT_INJECTION: InjectionSpec = {
 };
 
 export interface HarnessOptions {
-  permissions?: MissionPermissions;
+  permissions?: Omit<MissionPermissions, 'allowedCredentials'>;
   network?: NetworkRules;
   limits?: MissionLimits;
   /** When the *mission* runs out. The token always has an hour, so the two can be told apart. */
@@ -118,7 +119,10 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       intent: 'Investigate issue #423 and create a pull request',
       status: 'active',
       environment: 'development',
-      permissions: options.permissions ?? DEFAULT_PERMISSIONS,
+      permissions: {
+        ...(options.permissions ?? DEFAULT_PERMISSIONS),
+        allowedCredentials: [alias],
+      } satisfies MissionPermissions,
       network: options.network ?? DEFAULT_NETWORK,
       limits: options.limits ?? DEFAULT_LIMITS,
       expiresAt,

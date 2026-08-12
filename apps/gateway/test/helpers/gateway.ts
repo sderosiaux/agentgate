@@ -19,7 +19,14 @@ export const ADMIN_TOKEN = 'harness-admin-token';
 
 export const MASTER_KEY = Buffer.alloc(32, 0x5c).toString('base64');
 
-export const DEFAULT_PERMISSIONS: MissionPermissions = {
+/**
+ * Everything a mission grants except the credentials, which the harness fills in: the alias it
+ * registers is generated per run, so no constant can name it. A test that wants a mission
+ * holding no credential at all passes `allowedCredentials: []`.
+ */
+export type PermissionsWithoutCredentials = Omit<MissionPermissions, 'allowedCredentials'>;
+
+export const DEFAULT_PERMISSIONS: PermissionsWithoutCredentials = {
   resources: ['github:acme/payments'],
   allowedActions: [
     'repo.read',
@@ -31,6 +38,11 @@ export const DEFAULT_PERMISSIONS: MissionPermissions = {
   approvalActions: ['pull_request.create'],
   deniedActions: ['pull_request.merge', 'repository.delete'],
 };
+
+/** The default scope as a whole document, for the tests that write a mission themselves. */
+export function permissionsWith(...aliases: string[]): MissionPermissions {
+  return { ...DEFAULT_PERMISSIONS, allowedCredentials: aliases };
+}
 
 export const DEFAULT_NETWORK: NetworkRules = {
   allow: [
@@ -62,7 +74,9 @@ export interface UpstreamRequest {
 }
 
 export interface HarnessOptions {
-  permissions?: MissionPermissions;
+  permissions?: PermissionsWithoutCredentials;
+  /** Defaults to the one alias this harness registers. */
+  allowedCredentials?: string[];
   network?: NetworkRules;
   limits?: MissionLimits;
   missionStatus?: string;
@@ -158,7 +172,10 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       intent: 'Investigate issue #423 and create a pull request',
       status: options.missionStatus ?? 'active',
       environment: 'development',
-      permissions: options.permissions ?? DEFAULT_PERMISSIONS,
+      permissions: {
+        ...(options.permissions ?? DEFAULT_PERMISSIONS),
+        allowedCredentials: options.allowedCredentials ?? [alias],
+      } satisfies MissionPermissions,
       network: options.network ?? DEFAULT_NETWORK,
       limits: options.limits ?? DEFAULT_LIMITS,
       expiresAt,

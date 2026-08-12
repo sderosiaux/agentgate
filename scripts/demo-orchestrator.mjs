@@ -58,7 +58,7 @@ const HOST_PORT_DEFAULTS = { DEMO_GATEWAY_PORT: 8099, DEMO_MOCK_GITHUB_PORT: 300
  */
 const DEMO_MISSION_PATH = path.join(ROOT, 'apps/gateway/prisma/demo-mission.json');
 
-function readMissionScope() {
+function readMissionScope(credentialAlias) {
   let raw;
   try {
     raw = JSON.parse(readFileSync(DEMO_MISSION_PATH, 'utf8'));
@@ -68,9 +68,14 @@ function readMissionScope() {
 
   // Field by field: the document carries a `notes` array explaining itself, and the management
   // API refuses a create body with fields it does not know.
+  //
+  // `allowedCredentials` is the one field this run overrides rather than copies. The document
+  // names `github_work`, which is the alias the seed writes and which points at the compose
+  // hostname; a host-mode run registers its own alias for the same upstream on loopback, and a
+  // mission that did not name it would be refused at the credential stage on every case.
   return {
     intent: raw.intent,
-    permissions: raw.permissions,
+    permissions: { ...raw.permissions, allowedCredentials: [credentialAlias] },
     network: raw.network,
     limits: raw.limits,
   };
@@ -276,7 +281,7 @@ async function issueMission(management, credentialAlias) {
   const mission = await management.call('POST', '/api/v1/missions', {
     principalId: principal.id,
     agentId: agent.id,
-    ...readMissionScope(),
+    ...readMissionScope(credentialAlias),
     expiresAt: new Date(Date.now() + MISSION_TTL_MS).toISOString(),
   });
   const minted = await management.call('POST', `/api/v1/missions/${mission.id}/tokens`, {});

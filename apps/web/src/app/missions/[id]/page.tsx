@@ -192,6 +192,25 @@ export default async function MissionPage({
                 </ul>
               )}
             </div>
+            <div className="mb-6">
+              <div className="eyebrow">Credentials</div>
+              {permissions.allowedCredentials.length === 0 ? (
+                <p className="text-ink-faint mt-2 text-xs italic">
+                  none — every proxy request from this mission is refused at the credential stage
+                </p>
+              ) : (
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {permissions.allowedCredentials.map((alias) => (
+                    <li
+                      key={alias}
+                      className="ident border-line-strong bg-sunken text-ink rounded border px-2 py-1 text-[0.75rem]"
+                    >
+                      {alias}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <div className="grid gap-6 md:grid-cols-3">
               <ActionChips
                 label="Denied"

@@ -27,6 +27,19 @@ export interface PolicyInput {
   resource: { provider: string; id: string };
   /** Produced by a {@link ProviderAdapter}, never by the agent. */
   action: { type: string; method: string };
+  /**
+   * Which key the request asked to be signed with, by name.
+   *
+   * A name, never material: the alias is the same string an operator types into the management
+   * API, and the value behind it is not resolved until after this decision. Optional because a
+   * `PolicyInput` built by anything other than the gateway pipeline — a test, a replay of a
+   * stored snapshot — may not have one, and a policy that cares should say so itself rather
+   * than inherit an invented default.
+   *
+   * The gateway already refuses an alias the mission does not list (D2) before it gets here, so
+   * a rule reading this field is narrowing an authorisation, never widening one.
+   */
+  credentialAlias?: string | undefined;
   /** Already normalised by `normalizeUrl`. */
   network: { host: string; path: string };
   environment: { name: string };
@@ -66,6 +79,9 @@ export const PolicyInputSchema = z.object({
   }),
   resource: z.object({ provider: nonEmpty, id: nonEmpty }),
   action: z.object({ type: nonEmpty, method: nonEmpty }),
+  // Non-empty when present, for the same reason `provider` is: an empty string is not a name,
+  // it is what a missing field decays into, and a rule comparing against it would match one.
+  credentialAlias: nonEmpty.optional(),
   network: z.object({ host: z.string(), path: z.string() }),
   environment: z.object({ name: z.string() }),
   currentState: z.object({

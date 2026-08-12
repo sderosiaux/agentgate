@@ -37,6 +37,8 @@ const PolicyInputSnapshotSchema = z.strictObject({
   }),
   resource: z.strictObject({ provider: z.string(), id: z.string() }),
   action: z.strictObject({ type: z.string(), method: z.string() }),
+  /** The alias, which is a name an operator chose. Never the value behind it — see below. */
+  credentialAlias: z.string().optional(),
   network: z.strictObject({ host: z.string(), path: z.string() }),
   environment: z.strictObject({ name: z.string() }),
   currentState: z.strictObject({
@@ -117,6 +119,23 @@ export interface AuditRecorder {
 const FORBIDDEN_KEY = /authorization|credential|secret|password|cookie|token|value|^body$/i;
 
 /**
+ * The exemptions, by exact name, and there are two.
+ *
+ * An alias is not a credential. `credentialAlias` is the key the request named and
+ * `allowedCredentials` is the list the mission was issued (D2); both hold nothing but the
+ * strings an operator typed into the management API, which returns them in plaintext already.
+ * Neither can hold the value behind the alias: the secret store is not read until after the
+ * policy snapshot is built, and the two fields are validated as a string and as an array of
+ * strings before they get here.
+ *
+ * A set of exact names rather than a hole in the pattern above, on purpose. The pattern is what
+ * catches the field nobody thought about, so it stays as broad as it was; this is a list of
+ * names somebody did think about, and adding to it is an edit a reviewer can read in full.
+ * `credentials`, `credentialValue` and `allowedCredential` are not on it and still throw.
+ */
+const CREDENTIAL_NAMING_KEYS = new Set(['credentialAlias', 'allowedCredentials']);
+
+/**
  * Walks the whole event, not just its top level.
  *
  * Flat rows made a shallow check sufficient until `policyInputSnapshot` arrived: a nested
@@ -139,7 +158,7 @@ function assertNoCredentialShapedKey(value: unknown, path = ''): void {
   for (const [key, child] of Object.entries(value)) {
     const where = path === '' ? key : `${path}.${key}`;
 
-    if (FORBIDDEN_KEY.test(key)) {
+    if (!CREDENTIAL_NAMING_KEYS.has(key) && FORBIDDEN_KEY.test(key)) {
       throw new Error(`Audit events must not carry a "${where}" field: it may hold a credential`);
     }
 

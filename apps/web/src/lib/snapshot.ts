@@ -67,9 +67,22 @@ export const NETWORK_TERM = {
   note: 'Host and path, matched against the mission network rules on the logical host.',
 };
 
+/**
+ * Which key the request asked for, by name. A scalar rather than a slice, so it gets its own
+ * field instead of a card: there is nothing to unfold, and an alias shown as a one-line object
+ * would read as if the console were hiding the rest of it.
+ */
+export const CREDENTIAL_TERM = {
+  key: 'credentialAlias',
+  term: 'Credential',
+  note: 'The alias named by the request. The mission has to list it; the value is resolved after this decision.',
+};
+
 export interface ReadSnapshot {
   slices: Slice[];
   network: Slice;
+  /** Null on a snapshot written before the alias was part of the question. */
+  credentialAlias: string | null;
   /** Keys the snapshot carried that this console has no term for. Shown raw rather than dropped. */
   unknownKeys: string[];
 }
@@ -85,10 +98,17 @@ export function readSnapshot(value: unknown): ReadSnapshot | null {
     value: isRecord(value[term.key]) ? (value[term.key] as Record<string, unknown>) : null,
   }));
 
-  const known = new Set([...TERMS.map((term) => term.key), NETWORK_TERM.key]);
+  const alias: unknown = value[CREDENTIAL_TERM.key];
+
+  const known = new Set([
+    ...TERMS.map((term) => term.key),
+    NETWORK_TERM.key,
+    CREDENTIAL_TERM.key,
+  ]);
 
   return {
     slices,
+    credentialAlias: typeof alias === 'string' ? alias : null,
     network: {
       term: NETWORK_TERM.term,
       note: NETWORK_TERM.note,
