@@ -285,6 +285,7 @@ export function inputFor(decisionCase: DecisionCase): PolicyInput {
       intent: 'triage the payments backlog',
       permissions: decisionCase.permissions,
       network: { allow: [{ host: 'api.github.com' }], deny: [] },
+      label: 'triage',
       expiresAt: '2099-01-01T00:00:00.000Z',
     },
     resource: decisionCase.resource,

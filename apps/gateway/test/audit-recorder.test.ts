@@ -132,6 +132,7 @@ function snapshotWithPermissions(permissions: unknown): Record<string, unknown> 
       intent: 'Investigate issue #423',
       permissions,
       network: { allow: [], deny: [] },
+      label: 'development',
       expiresAt: '2026-08-11T12:00:00.000Z',
     },
     resource: { provider: 'github', id: 'acme/payments' },

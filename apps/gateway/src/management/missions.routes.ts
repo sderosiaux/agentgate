@@ -45,7 +45,7 @@ const MissionSchema = z.object({
   agentId: z.string(),
   intent: z.string(),
   status: z.string().describe(MISSION_STATUSES.join(' | ')),
-  environment: z.string(),
+  label: z.string().describe('a free-form label, not the deployment the gateway runs in'),
   permissions: StoredDocumentSchema.describe('MissionPermissions, as submitted on create'),
   network: StoredDocumentSchema.describe('NetworkRules, as submitted on create'),
   limits: StoredDocumentSchema.describe('MissionLimits, as submitted on create'),
@@ -71,7 +71,10 @@ const CreateMissionSchema = z.strictObject({
   network: NetworkRulesSchema,
   limits: MissionLimitsSchema,
   expiresAt: IsoDateTimeSchema,
-  environment: z.string().min(1).max(MAX_NAME_LENGTH).optional(),
+  // Named `label` rather than `environment` on purpose. The engine reads the deployment from
+  // the gateway's own configuration, and a create body that could set it would be a way for
+  // whoever issues a mission to choose which environment rules it is judged by.
+  label: z.string().min(1).max(MAX_NAME_LENGTH).optional(),
 });
 
 const TokenSchema = z.object({
@@ -86,7 +89,7 @@ interface MissionRow {
   agentId: string;
   intent: string;
   status: string;
-  environment: string;
+  label: string;
   permissions: unknown;
   network: unknown;
   limits: unknown;
@@ -158,7 +161,7 @@ export function createMissionRoutes(deps: ManagementDeps): FastifyPluginAsyncZod
             agentId: body.agentId,
             intent: body.intent,
             status: 'active',
-            environment: body.environment ?? 'development',
+            label: body.label ?? 'development',
             permissions: body.permissions,
             network: body.network,
             limits: body.limits,

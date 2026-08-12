@@ -1,0 +1,12 @@
+-- The deployment is a fact about the gateway, not a field on the mission.
+--
+-- `Mission.environment` was passed to the policy engine as `input.environment.name`, and the
+-- management API lets whoever creates a mission set it to any string. A rule of the form "no
+-- deletes in production" therefore read a value the caller it was judging had written: create
+-- the mission with `environment: "development"`, keep the production credential, and the rule
+-- never fires. The gateway's own `ENVIRONMENT` configuration is what the engine reads now.
+--
+-- The column stays — a mission label is useful and the console shows it — under a name nobody
+-- will mistake for the deployment. `PolicyInput` carries it as `mission.label`, so a policy
+-- that genuinely wants to reason about it still can, and has to say which one it means.
+ALTER TABLE "Mission" RENAME COLUMN "environment" TO "label";

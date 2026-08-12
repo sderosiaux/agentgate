@@ -120,7 +120,7 @@ export async function seed(prisma: PrismaClient): Promise<void> {
     agentId: 'agt_demo',
     intent: scope.intent,
     status: 'active',
-    environment: 'development',
+    label: 'development',
     ...validateMissionDocuments(scope),
     expiresAt: new Date(Date.now() + MISSION_TTL_MS),
   };

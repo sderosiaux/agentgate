@@ -104,7 +104,7 @@ test('a principal, an agent and a mission can be created and read back', async (
     principalId,
     agentId,
     status: 'active',
-    environment: 'development',
+    label: 'development',
     permissions: MISSION_PERMISSIONS,
     network: DEFAULT_NETWORK,
     limits: DEFAULT_LIMITS,

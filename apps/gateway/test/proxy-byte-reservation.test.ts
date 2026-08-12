@@ -90,10 +90,18 @@ test('a budget with room for several reservations still runs them in parallel', 
 });
 
 test('a response larger than one reservation is cut off rather than charged silently', async () => {
+  // The cap on the reservation is the cap on the read, so a mission is never charged for bytes
+  // the gateway decided in advance it could not pay for. Driven from the remaining-budget side
+  // rather than the 8 MiB cap: the arithmetic is the same and the payload is not eight
+  // megabytes of `x` through a loopback socket. The cap itself is pinned in limits.test.ts.
   echo = await startEchoUpstream();
-  harness = await startHarness({ upstreamBaseUrl: echo.baseUrl });
+  const maxBytes = 100_000;
+  harness = await startHarness({
+    upstreamBaseUrl: echo.baseUrl,
+    limits: { ...DEFAULT_LIMITS, maxBytes },
+  });
   const token = await harness.mint();
-  const oversized = RESPONSE_RESERVATION_CAP_BYTES + RESPONSE_SLACK_BYTES + 8_192;
+  const oversized = maxBytes + RESPONSE_SLACK_BYTES + 8_192;
 
   const response = await harness.proxy(
     {
@@ -105,9 +113,7 @@ test('a response larger than one reservation is cut off rather than charged sile
   );
 
   expect(response.statusCode).toBe(502);
-  expect(await bytesSpent(harness)).toBeLessThanOrEqual(
-    RESPONSE_RESERVATION_CAP_BYTES + RESPONSE_SLACK_BYTES,
-  );
+  expect(await bytesSpent(harness)).toBeLessThanOrEqual(maxBytes + RESPONSE_SLACK_BYTES);
 });
 
 test('a reservation is released down to what the request actually moved', async () => {

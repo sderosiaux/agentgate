@@ -20,6 +20,8 @@ export interface PolicyInput {
     intent: string;
     permissions: MissionPermissions;
     network: NetworkRules;
+    /** Whatever the issuer wrote on this mission. Not the deployment — see `environment`. */
+    label: string;
     /** ISO 8601. Expiry is enforced by the gateway pipeline (D3 step 2), not by the engine. */
     expiresAt: string;
   };
@@ -42,6 +44,11 @@ export interface PolicyInput {
   credentialAlias?: string | undefined;
   /** Already normalised by `normalizeUrl`. */
   network: { host: string; path: string };
+  /**
+   * Which deployment this gateway is, read from its own configuration and from nothing a caller
+   * can write. A rule of the form "no deletes in production" is only worth writing if the thing
+   * it reads cannot be set by whoever creates the mission.
+   */
   environment: { name: string };
   currentState: { requestCount: number; bytesTotal: number };
   data: {
@@ -75,6 +82,7 @@ export const PolicyInputSchema = z.object({
     intent: z.string(),
     permissions: MissionPermissionsSchema,
     network: NetworkRulesSchema,
+    label: z.string(),
     expiresAt: z.string(),
   }),
   resource: z.object({ provider: nonEmpty, id: nonEmpty }),

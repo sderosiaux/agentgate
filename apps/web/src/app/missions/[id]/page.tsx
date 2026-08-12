@@ -130,8 +130,8 @@ export default async function MissionPage({
             <Field label="Principal" mono>
               {mission.principalId}
             </Field>
-            <Field label="Environment" mono>
-              {mission.environment}
+            <Field label="Label" mono>
+              {mission.label}
             </Field>
             <Field label="Status">
               <StatusChip status={mission.status} />

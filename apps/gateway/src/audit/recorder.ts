@@ -33,6 +33,7 @@ const PolicyInputSnapshotSchema = z.strictObject({
     intent: z.string(),
     permissions: z.unknown(),
     network: z.unknown(),
+    label: z.string(),
     expiresAt: z.string(),
   }),
   resource: z.strictObject({ provider: z.string(), id: z.string() }),

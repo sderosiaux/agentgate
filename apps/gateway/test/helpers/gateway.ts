@@ -86,6 +86,10 @@ export interface HarnessOptions {
   injection?: InjectionSpec;
   /** Points the credential somewhere other than the mock GitHub started for this harness. */
   upstreamBaseUrl?: string;
+  /** The deployment this gateway believes it is, as its own configuration would say. */
+  environment?: string;
+  /** The mission's own free-form label, which is not the deployment and never decides one. */
+  missionLabel?: string;
   engine?: PolicyEngine;
   /** What the pipeline reads as "now". Mutable, so a test can move the clock. */
   now?: Date;
@@ -171,7 +175,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       agentId,
       intent: 'Investigate issue #423 and create a pull request',
       status: options.missionStatus ?? 'active',
-      environment: 'development',
+      label: options.missionLabel ?? 'development',
       permissions: {
         ...(options.permissions ?? DEFAULT_PERMISSIONS),
         allowedCredentials: options.allowedCredentials ?? [alias],
@@ -215,7 +219,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     approvals,
     audit: createAuditRecorder(prisma),
     clock: () => clock.now,
-    environment: 'development',
+    environment: options.environment ?? 'development',
     adminToken: ADMIN_TOKEN,
     masterKey: MASTER_KEY,
     canMintTokens: jwtPrivateKey !== undefined,

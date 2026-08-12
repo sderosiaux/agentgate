@@ -581,6 +581,7 @@ async function execute(
         intent: mission.intent,
         permissions: documents.permissions,
         network: documents.network,
+        label: mission.label,
         expiresAt: mission.expiresAt.toISOString(),
       },
       resource: {
@@ -593,7 +594,10 @@ async function execute(
       // credential" — rather than only about the action itself.
       credentialAlias: credential.alias,
       network: { host: normalized.host, path: normalized.path },
-      environment: { name: mission.environment },
+      // The gateway's own configuration, never the mission's. A mission is something an
+    // administrator writes, so a mission that could name the environment could name
+    // `development` and walk past every rule written about production.
+    environment: { name: deps.environment },
       currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },
       data: {
         ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),

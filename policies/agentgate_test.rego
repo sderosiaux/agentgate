@@ -12,6 +12,7 @@ input_with(permissions, resource, action) := {
 		"intent": "triage the payments backlog",
 		"permissions": permissions,
 		"network": {"allow": [{"host": "api.github.com"}], "deny": []},
+		"label": "triage",
 		"expiresAt": "2099-01-01T00:00:00.000Z",
 	},
 	"resource": resource,

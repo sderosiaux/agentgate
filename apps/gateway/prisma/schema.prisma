@@ -29,7 +29,11 @@ model Mission {
   agentId     String
   intent      String
   status      String    @default("active") // active | expired | revoked
-  environment String    @default("development")
+  /// A free-form label the issuer chose, shown in the console and passed to the policy engine
+  /// as `mission.label`. Deliberately NOT called `environment`: the deployment a decision is
+  /// made in comes from the gateway's own configuration, and a mission that could name it
+  /// would be a mission that could talk its way out of an environment-scoped rule.
+  label       String    @default("development")
   permissions Json // MissionPermissions
   network     Json // NetworkRules
   limits      Json // MissionLimits

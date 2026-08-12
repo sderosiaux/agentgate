@@ -118,7 +118,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
       agentId,
       intent: 'Investigate issue #423 and create a pull request',
       status: 'active',
-      environment: 'development',
+      label: 'development',
       permissions: {
         ...(options.permissions ?? DEFAULT_PERMISSIONS),
         allowedCredentials: [alias],

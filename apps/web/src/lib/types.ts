@@ -61,7 +61,8 @@ export interface Mission {
   agentId: string;
   intent: string;
   status: string;
-  environment: string;
+  /** The issuer's own label. Not the deployment: that comes from the gateway. */
+  label: string;
   /** Admin-authored documents. Rendered defensively; see `src/lib/mission-doc.ts`. */
   permissions: unknown;
   network: unknown;

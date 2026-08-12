@@ -35,7 +35,7 @@ function seed(): void {
       agentId: 'agt_codex_01',
       principalId: 'pri_stephane',
       status: 'active',
-      environment: 'development',
+      label: 'development',
       permissions: {},
       network: {},
       limits: {},
