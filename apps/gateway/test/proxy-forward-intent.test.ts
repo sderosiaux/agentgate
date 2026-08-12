@@ -47,9 +47,9 @@ test('nothing is forwarded before the intent to forward it is durable', async ()
   expect(response.statusCode).toBe(500);
   expect(harness.upstreamRequests).toHaveLength(1);
   expect(response.headers['x-agentgate-request-id']).toBeUndefined();
-  expect(
-    await harness.prisma.auditEvent.count({ where: { missionId: harness.missionId } }),
-  ).toBe(0);
+  expect(await harness.prisma.auditEvent.count({ where: { missionId: harness.missionId } })).toBe(
+    0,
+  );
 
   // What closes it: a row written before the request left, which the failing table cannot
   // swallow because it is not that table. The request id is on it, so the agent's retry and the
@@ -77,7 +77,8 @@ test('an intent that cannot be written stops the request before the upstream see
   harness = await startHarness();
   const token = await harness.mint();
 
-  await harness.prisma.$executeRaw`ALTER TABLE "ForwardIntent" ADD CONSTRAINT "temporarily_impossible" CHECK (false) NOT VALID`;
+  await harness.prisma
+    .$executeRaw`ALTER TABLE "ForwardIntent" ADD CONSTRAINT "temporarily_impossible" CHECK (false) NOT VALID`;
 
   try {
     const response = await harness.proxy({ credential: harness.alias, ...READ_PAYMENTS }, token);
@@ -85,7 +86,8 @@ test('an intent that cannot be written stops the request before the upstream see
     expect(response.statusCode).toBe(500);
     expect(harness.upstreamRequests).toHaveLength(0);
   } finally {
-    await harness.prisma.$executeRaw`ALTER TABLE "ForwardIntent" DROP CONSTRAINT "temporarily_impossible"`;
+    await harness.prisma
+      .$executeRaw`ALTER TABLE "ForwardIntent" DROP CONSTRAINT "temporarily_impossible"`;
   }
 });
 
@@ -124,9 +126,9 @@ test('a request that never reaches an upstream records no intent to reach one', 
     token,
   );
 
-  expect(await harness.prisma.forwardIntent.count({ where: { missionId: harness.missionId } })).toBe(
-    0,
-  );
+  expect(
+    await harness.prisma.forwardIntent.count({ where: { missionId: harness.missionId } }),
+  ).toBe(0);
 });
 
 test('an intent names the grant that was spent, so a lost outcome is traceable to it', async () => {

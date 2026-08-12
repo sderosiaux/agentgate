@@ -153,7 +153,11 @@ test('a request with no body and one with an empty body are the same question', 
   const token = await harness.mint();
 
   const withoutBody = await harness.proxy(
-    { credential: harness.alias, method: 'POST', url: 'https://api.github.com/repos/acme/payments/pulls' },
+    {
+      credential: harness.alias,
+      method: 'POST',
+      url: 'https://api.github.com/repos/acme/payments/pulls',
+    },
     token,
   );
   const withEmptyBody = await harness.proxy(

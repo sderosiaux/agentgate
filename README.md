@@ -100,6 +100,7 @@ resources: [github:acme/payments]
 allowedActions: [repo.read, issue.read, pull_request.read, branch.create, pull_request.create]
 approvalActions: [pull_request.create]
 deniedActions: [pull_request.merge, repository.delete]
+allowedCredentials: [github_work]
 limits: 500 requests, 50 MB, 60 rpm
 ```
 
@@ -374,9 +375,9 @@ Two asymmetries worth knowing even when Docker works: case 0 proves isolation pa
 
 ### Test results
 
-`pnpm -r test` passes 627 and skips 45: mock-github 20, shared 20, auth 13, policy 163 (+44 skipped), gateway 285 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 8.
+`pnpm -r test` passes 670 and skips 47: mock-github 20, shared 21, auth 13, policy 167 (+46 skipped), gateway 323 (+1 skipped), sdk 25, demo-agent 30, web 63, tests 8.
 
-With `OPA_URL` pointing at a live OPA it is 672 passing and nothing skipped. Those 45 are the parity suites, 44 in `packages/policy` and one in the gateway, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 45 (44 in `packages/policy`, one in the gateway) and fails.
+With `OPA_URL` pointing at a live OPA it is 717 passing and nothing skipped. Those 47 are the parity suites, 46 in `packages/policy` and one in the gateway, which check that `policies/agentgate.rego` and the builtin evaluator reach the same verdict, and they are `skipIf(!OPA_URL)` — so the default way to run them is not to. CI exports the variable and then proves it had an effect, failing the build if either package skipped a single test. Verified in both directions: with OPA running the gate reports zero, without it reports 47 (46 in `packages/policy`, one in the gateway) and fails.
 
 `opa test policies/` is 27 passing and `opa check --strict policies/` is clean, both against OPA 1.19.0, the version compose runs.
 

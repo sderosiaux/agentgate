@@ -596,9 +596,9 @@ async function execute(
       credentialAlias: credential.alias,
       network: { host: normalized.host, path: normalized.path },
       // The gateway's own configuration, never the mission's. A mission is something an
-    // administrator writes, so a mission that could name the environment could name
-    // `development` and walk past every rule written about production.
-    environment: { name: deps.environment },
+      // administrator writes, so a mission that could name the environment could name
+      // `development` and walk past every rule written about production.
+      environment: { name: deps.environment },
       currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },
       data: {
         ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),

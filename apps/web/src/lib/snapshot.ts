@@ -100,11 +100,7 @@ export function readSnapshot(value: unknown): ReadSnapshot | null {
 
   const alias: unknown = value[CREDENTIAL_TERM.key];
 
-  const known = new Set([
-    ...TERMS.map((term) => term.key),
-    NETWORK_TERM.key,
-    CREDENTIAL_TERM.key,
-  ]);
+  const known = new Set([...TERMS.map((term) => term.key), NETWORK_TERM.key, CREDENTIAL_TERM.key]);
 
   return {
     slices,
