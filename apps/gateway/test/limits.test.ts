@@ -3,10 +3,11 @@ import type { MissionLimits } from '@agentgate/shared';
 import { afterAll, beforeEach, expect, test } from 'vitest';
 import { createPrismaClient, type PrismaClient } from '../src/db.js';
 import {
-  bytesExceeded,
   consumeRequestSlot,
-  recordBytes,
-  responseAllowance,
+  releaseBytes,
+  reserveRequestBytes,
+  reserveResponseAllowance,
+  RESPONSE_RESERVATION_CAP_BYTES,
   RESPONSE_SLACK_BYTES,
 } from '../src/enforcement/limits.js';
 
@@ -113,55 +114,106 @@ test('ten requests racing for four slots in the same minute hand out exactly fou
   expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(4);
 });
 
-test('recorded bytes accumulate on the mission counter', async () => {
-  await consumeRequestSlot(prisma, missionId, GENEROUS, AT_MINUTE);
-  await recordBytes(prisma, missionId, 400);
-  await recordBytes(prisma, missionId, 350);
+/** The counter row every booking updates. The pipeline always has one by then (D3 step 3). */
+async function withCounter(bytesTotal = 0): Promise<void> {
+  await prisma.usageCounter.create({ data: { missionId, requestCount: 0, bytesTotal } });
+}
 
-  const outcome = await consumeRequestSlot(prisma, missionId, GENEROUS, AT_MINUTE);
+async function bytesTotal(): Promise<number> {
+  const row = await prisma.usageCounter.findUniqueOrThrow({ where: { missionId } });
 
-  expect(outcome.usage).toEqual({ requestCount: 2, bytesTotal: 750 });
+  return Number(row.bytesTotal);
+}
+
+test('booking a request body puts it on the counter before anything is sent', async () => {
+  await withCounter();
+
+  expect(await reserveRequestBytes(prisma, missionId, GENEROUS, 400)).toBe(true);
+  expect(await reserveRequestBytes(prisma, missionId, GENEROUS, 350)).toBe(true);
+
+  expect(await bytesTotal()).toBe(750);
 });
 
-test('recording bytes for a mission with no counter yet creates one', async () => {
-  await recordBytes(prisma, missionId, 120);
-
-  const outcome = await consumeRequestSlot(prisma, missionId, GENEROUS, AT_MINUTE);
-
-  expect(outcome.usage).toEqual({ requestCount: 1, bytesTotal: 120 });
-});
-
-test('bytes already spent plus the pending request decide the byte budget', () => {
+test('a body the mission cannot afford is not booked at all', async () => {
   const limits: MissionLimits = { ...GENEROUS, maxBytes: 1_000 };
+  await withCounter(900);
 
-  expect(bytesExceeded({ requestCount: 1, bytesTotal: 900 }, limits, 100)).toBe(false);
-  expect(bytesExceeded({ requestCount: 1, bytesTotal: 900 }, limits, 101)).toBe(true);
-  expect(bytesExceeded({ requestCount: 1, bytesTotal: 1_001 }, limits, 0)).toBe(true);
+  expect(await reserveRequestBytes(prisma, missionId, limits, 100)).toBe(true);
+  expect(await bytesTotal()).toBe(1_000);
+
+  expect(await reserveRequestBytes(prisma, missionId, limits, 1)).toBe(false);
+  // Refused means untouched: a booking that did not happen must not cost the mission anything.
+  expect(await bytesTotal()).toBe(1_000);
 });
 
-test('the response allowance is what the mission can still afford, plus enough to answer', () => {
-  const limits: MissionLimits = { ...GENEROUS, maxBytes: 10_000 };
+test('ten bodies racing for a budget that fits four are booked four times', async () => {
+  // The finding this replaces: each of these used to read the same `bytesTotal`, find room, and
+  // be told to go ahead, so the budget was handed out ten times over.
+  const limits: MissionLimits = { ...GENEROUS, maxBytes: 400 };
+  await withCounter();
 
-  expect(responseAllowance({ requestCount: 1, bytesTotal: 0 }, limits, 0)).toBe(
-    10_000 + RESPONSE_SLACK_BYTES,
+  const outcomes = await Promise.all(
+    Array.from({ length: 10 }, async () => reserveRequestBytes(prisma, missionId, limits, 100)),
   );
-  expect(responseAllowance({ requestCount: 1, bytesTotal: 6_000 }, limits, 1_000)).toBe(
+
+  expect(outcomes.filter(Boolean)).toHaveLength(4);
+  expect(await bytesTotal()).toBe(400);
+});
+
+test('the response allowance is what the mission can still afford, plus enough to answer', async () => {
+  const limits: MissionLimits = { ...GENEROUS, maxBytes: 10_000 };
+  await withCounter(7_000);
+
+  expect(await reserveResponseAllowance(prisma, missionId, limits)).toBe(
     3_000 + RESPONSE_SLACK_BYTES,
   );
-  // A spent budget still leaves the slack: the last request gets a whole answer rather than a
-  // truncated one, and `bytesExceeded` is what refuses the request after it.
-  expect(responseAllowance({ requestCount: 1, bytesTotal: 99_000 }, limits, 0)).toBe(
-    RESPONSE_SLACK_BYTES,
+  // And it is booked, not merely computed: that is what stops two requests in flight from each
+  // being told they may read the same 3 000 bytes.
+  expect(await bytesTotal()).toBe(7_000 + 3_000 + RESPONSE_SLACK_BYTES);
+});
+
+test('the response allowance is capped however much budget is left', async () => {
+  const limits: MissionLimits = { ...GENEROUS, maxBytes: 400 * 1024 * 1024 };
+  await withCounter();
+
+  expect(await reserveResponseAllowance(prisma, missionId, limits)).toBe(
+    RESPONSE_RESERVATION_CAP_BYTES + RESPONSE_SLACK_BYTES,
   );
+});
+
+test('a spent budget still leaves the slack, and the next request none at all', async () => {
+  const limits: MissionLimits = { ...GENEROUS, maxBytes: 10_000 };
+  await withCounter(10_000);
+
+  // Exactly at the limit: the last request gets a whole answer rather than a truncated one.
+  expect(await reserveResponseAllowance(prisma, missionId, limits)).toBe(RESPONSE_SLACK_BYTES);
+  // And the mission is now past it, so nothing more is booked.
+  expect(await reserveResponseAllowance(prisma, missionId, limits)).toBeNull();
+  expect(await reserveRequestBytes(prisma, missionId, limits, 0)).toBe(false);
+});
+
+test('releasing gives back what was booked and never goes below zero', async () => {
+  await withCounter();
+  await reserveRequestBytes(prisma, missionId, GENEROUS, 1_000);
+
+  await releaseBytes(prisma, missionId, 600);
+  expect(await bytesTotal()).toBe(400);
+
+  await releaseBytes(prisma, missionId, 0);
+  await releaseBytes(prisma, missionId, -5);
+  expect(await bytesTotal()).toBe(400);
+
+  await releaseBytes(prisma, missionId, 10_000);
+  expect(await bytesTotal()).toBe(0);
 });
 
 test('byte totals past the safe integer range are still comparable', async () => {
   // BIGINT column, JS numbers: a mission that has moved terabytes must not wrap into a
   // negative total and silently reopen its budget.
-  await recordBytes(prisma, missionId, Number.MAX_SAFE_INTEGER);
+  await withCounter(Number.MAX_SAFE_INTEGER);
 
   const outcome = await consumeRequestSlot(prisma, missionId, GENEROUS, AT_MINUTE);
 
   expect(outcome.usage.bytesTotal).toBe(Number.MAX_SAFE_INTEGER);
-  expect(bytesExceeded(outcome.usage, GENEROUS, 0)).toBe(true);
+  expect(await reserveRequestBytes(prisma, missionId, GENEROUS, 0)).toBe(false);
 });

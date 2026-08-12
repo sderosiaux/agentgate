@@ -30,7 +30,12 @@ import { parseBearer } from '../http/bearer.js';
 import type { SecretStore } from '../secrets/index.js';
 import { applyInjection } from '../secrets/index.js';
 import { forward, UpstreamResponseTooLarge } from './forwarder.js';
-import { bytesExceeded, consumeRequestSlot, recordBytes, responseAllowance } from './limits.js';
+import {
+  consumeRequestSlot,
+  releaseBytes,
+  reserveRequestBytes,
+  reserveResponseAllowance,
+} from './limits.js';
 
 /**
  * Pinned to the shared `HttpMethod`: mission network rules are written with these spellings, so
@@ -205,6 +210,20 @@ interface Attempt {
    * and a half-built one would be a lie about what was evaluated.
    */
   policyInputSnapshot?: PolicyInputSnapshot;
+}
+
+/**
+ * The one answer to a mission that cannot pay for what it is asking, whichever of the two
+ * bookings noticed. Both are the same fact — there is no room — and the agent's move is the
+ * same either way: wait, or ask for a mission with a bigger budget.
+ */
+function outOfBytes(attempt: Attempt): never {
+  attempt.matchedPolicy = 'mission-limit-max_bytes';
+
+  throw new AgentGateError('agentgate_limit_exceeded', 429, 'mission exceeded its byte budget', {
+    decision: 'DENY',
+    details: { limit: 'max_bytes' },
+  });
 }
 
 function denied(
@@ -424,284 +443,307 @@ async function execute(
     attempt.approvalId = request.approvalId;
   }
 
-  // The byte budget needs the size of the body, so it can only be checked once there is one.
-  if (bytesExceeded(slot.usage, documents.limits, attempt.bodySize ?? 0)) {
-    attempt.matchedPolicy = 'mission-limit-max_bytes';
-    throw new AgentGateError('agentgate_limit_exceeded', 429, 'mission exceeded its byte budget', {
-      decision: 'DENY',
-      details: { limit: 'max_bytes' },
-    });
-  }
-
-  // 4 — one spelling of the url, which every later stage matches on.
-  const normalized = normalizeRequestUrl(attempt, request.url);
-  attempt.destHost = normalized.host;
-  attempt.destPath = normalized.path;
-
-  // 5a — is this alias one the mission was issued? Asked of the mission document alone, before
-  // the store is touched at all (D2).
+  // The byte budget needs the size of the body, so it can only be settled once there is one.
   //
-  // The order is the control. Reading the row first and comparing afterwards would answer two
-  // questions where the agent is entitled to one: an alias that exists and is not this
-  // mission's would fail later and differently from an alias that names nothing, and the pair
-  // of refusals is a directory of the credential store, one guess at a time. Nothing is read,
-  // so there is nothing to tell apart — same code, same status, same sentence as every other
-  // credential refusal, and only the trail knows which of them it was.
-  if (!documents.permissions.allowedCredentials.includes(request.credential)) {
-    denied(
-      attempt,
-      'credential-not-in-mission',
-      CREDENTIAL_REFUSAL(request.credential),
-      'agentgate_unknown_credential',
-    );
+  // Taken rather than checked. A check reads a number and leaves it there, which is what let
+  // ten concurrent requests each find the same room left and each be told to go ahead; a
+  // reservation is a write, so the second one sees the first. Everything below this line runs
+  // with the bytes already booked, and every path out of it gives back what was not used.
+  const requestBytes = attempt.bodySize ?? 0;
+  if (!(await reserveRequestBytes(deps.prisma, mission.id, documents.limits, requestBytes))) {
+    outOfBytes(attempt);
   }
 
-  // 5b — the credential, by metadata only. Nothing is decrypted before a verdict exists, and the
-  // explicit `select` is what makes that structural rather than a promise: the ciphertext is
-  // not fetched, so no amount of later code can decrypt it from here.
-  const credential = await deps.prisma.credential.findUnique({
-    where: { alias: request.credential },
-    select: {
-      alias: true,
-      provider: true,
-      logicalHost: true,
-      upstreamBaseUrl: true,
-      status: true,
-    },
-  });
-  if (credential === null) {
-    denied(
-      attempt,
-      'credential-unknown',
-      CREDENTIAL_REFUSAL(request.credential),
-      'agentgate_unknown_credential',
-    );
-  }
-  if (credential.status !== 'active') {
-    // Its own tag: an alias nobody ever created is a typo, while a revoked one being exercised
-    // is something still holding a key that was taken away — worth telling apart in the trail,
-    // and worth alerting on later. The agent is told the same thing either way.
-    denied(
-      attempt,
-      'credential-revoked',
-      CREDENTIAL_REFUSAL(request.credential),
-      'agentgate_unknown_credential',
-    );
-  }
-  if (credential.logicalHost.toLowerCase() !== normalized.host) {
-    // The credential names the host it may be used against (D2): an alias for GitHub cannot
-    // be pointed at another service by writing a different url.
+  // Everything from here on runs against bytes that are already booked, so the one thing this
+  // function must not do is return without settling them. `booked` grows when the response
+  // allowance is taken just before the forward; `used` is what actually crossed the network,
+  // and stays at zero on every path that refuses before the forward.
+  const spend = { booked: requestBytes, used: 0 };
+  try {
+    // 4 — one spelling of the url, which every later stage matches on.
+    const normalized = normalizeRequestUrl(attempt, request.url);
+    attempt.destHost = normalized.host;
+    attempt.destPath = normalized.path;
+
+    // 5a — is this alias one the mission was issued? Asked of the mission document alone, before
+    // the store is touched at all (D2).
     //
-    // Same words as the two refusals above, on purpose. "Cannot be used for this host" would
-    // confirm that the alias exists and is active, which is a question an agent gets to ask
-    // once per guess. The trail keeps the three cases apart; the agent sees one answer.
-    denied(
-      attempt,
-      'credential-host-scope',
-      CREDENTIAL_REFUSAL(request.credential),
-      'agentgate_unknown_credential',
-    );
-  }
+    // The order is the control. Reading the row first and comparing afterwards would answer two
+    // questions where the agent is entitled to one: an alias that exists and is not this
+    // mission's would fail later and differently from an alias that names nothing, and the pair
+    // of refusals is a directory of the credential store, one guess at a time. Nothing is read,
+    // so there is nothing to tell apart — same code, same status, same sentence as every other
+    // credential refusal, and only the trail knows which of them it was.
+    if (!documents.permissions.allowedCredentials.includes(request.credential)) {
+      denied(
+        attempt,
+        'credential-not-in-mission',
+        CREDENTIAL_REFUSAL(request.credential),
+        'agentgate_unknown_credential',
+      );
+    }
 
-  // 6 — network rules: explicit deny wins, and no rule at all is a deny (D6).
-  const network = matchNetworkRules(documents.network, {
-    host: normalized.host,
-    path: normalized.path,
-    method: request.method,
-  });
-  if (network.matched === 'deny') {
-    denied(
-      attempt,
-      'network-deny-rule',
-      `network rule ${describeRule(network.rule)} denies ${request.method} ${normalized.host}${normalized.path}`,
-    );
-  }
-  if (network.matched === 'none') {
-    denied(
-      attempt,
-      'network-default-deny',
-      `no network rule allows ${request.method} ${normalized.host}${normalized.path}`,
-    );
-  }
-
-  // 7 — what the request *is*, decided by the gateway and never by the agent (D4).
-  const adapter = deps.adapters.find(
-    (candidate) =>
-      candidate.provider === credential.provider && candidate.matchesHost(normalized.host),
-  );
-  const mapped = adapter?.mapRequest(request.method, normalized.path) ?? null;
-  if (mapped === null) {
-    denied(
-      attempt,
-      'adapter-unmapped',
-      `${request.method} ${normalized.path} maps to no known action`,
-      'agentgate_unmapped_action',
-    );
-  }
-  attempt.resource = mapped.resource;
-  attempt.action = mapped.action;
-
-  // 8 — the decision itself. Everything above is the question; the engine gives the answer.
-  const separator = mapped.resource.indexOf(':');
-  const input: PolicyInput = {
-    identity: {
-      principalId: claims.principalId,
-      agentId: claims.agentId,
-      agentType: claims.agentType,
-    },
-    mission: {
-      id: mission.id,
-      intent: mission.intent,
-      permissions: documents.permissions,
-      network: documents.network,
-      expiresAt: mission.expiresAt.toISOString(),
-    },
-    resource: {
-      provider: mapped.resource.slice(0, separator),
-      id: mapped.resource.slice(separator + 1),
-    },
-    action: { type: mapped.action, method: request.method.toUpperCase() },
-    // The alias, already checked against the mission at step 5a. Passed on so a rule can be
-    // written about which key an action is taken with — "merge, but not with the release
-    // credential" — rather than only about the action itself.
-    credentialAlias: credential.alias,
-    network: { host: normalized.host, path: normalized.path },
-    environment: { name: mission.environment },
-    currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },
-    data: {
-      ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
-      bodySize: attempt.bodySize ?? 0,
-      ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
-    },
-  };
-
-  // Recorded before the verdict, so a policy engine that throws still leaves the trail saying
-  // what it was asked. `PolicyInput` is already free of headers, bodies and credentials (D10) —
-  // the mission documents in it are admin-authored scope, which is the thing an operator
-  // reading a decision a week later most needs to see as it was at the time.
-  attempt.policyInputSnapshot = input;
-
-  const verdict = await deps.engine.evaluate(input);
-  if (verdict.matchedPolicy !== undefined) {
-    attempt.matchedPolicy = verdict.matchedPolicy;
-  }
-
-  // What the trail records as the reason this attempt ended the way it did. The engine's own
-  // wording, unless a grant is what let the request through — an ALLOW row reading "requires
-  // human approval" describes the rule, not the decision that was actually made.
-  let reason = verdict.reason;
-
-  if (verdict.decision === 'DENY') {
-    throw new AgentGateError('agentgate_access_denied', 403, verdict.reason, {
-      decision: 'DENY',
+    // 5b — the credential, by metadata only. Nothing is decrypted before a verdict exists, and the
+    // explicit `select` is what makes that structural rather than a promise: the ciphertext is
+    // not fetched, so no amount of later code can decrypt it from here.
+    const credential = await deps.prisma.credential.findUnique({
+      where: { alias: request.credential },
+      select: {
+        alias: true,
+        provider: true,
+        logicalHost: true,
+        upstreamBaseUrl: true,
+        status: true,
+      },
     });
-  }
+    if (credential === null) {
+      denied(
+        attempt,
+        'credential-unknown',
+        CREDENTIAL_REFUSAL(request.credential),
+        'agentgate_unknown_credential',
+      );
+    }
+    if (credential.status !== 'active') {
+      // Its own tag: an alias nobody ever created is a typo, while a revoked one being exercised
+      // is something still holding a key that was taken away — worth telling apart in the trail,
+      // and worth alerting on later. The agent is told the same thing either way.
+      denied(
+        attempt,
+        'credential-revoked',
+        CREDENTIAL_REFUSAL(request.credential),
+        'agentgate_unknown_credential',
+      );
+    }
+    if (credential.logicalHost.toLowerCase() !== normalized.host) {
+      // The credential names the host it may be used against (D2): an alias for GitHub cannot
+      // be pointed at another service by writing a different url.
+      //
+      // Same words as the two refusals above, on purpose. "Cannot be used for this host" would
+      // confirm that the alias exists and is active, which is a question an agent gets to ask
+      // once per guess. The trail keeps the three cases apart; the agent sees one answer.
+      denied(
+        attempt,
+        'credential-host-scope',
+        CREDENTIAL_REFUSAL(request.credential),
+        'agentgate_unknown_credential',
+      );
+    }
 
-  if (verdict.decision === 'REQUIRE_APPROVAL') {
-    // D7, and the only thing this step does: turn "a human must say yes" into either a grant
-    // being spent or a question being asked. Everything below is untouched — a consumed grant
-    // continues down the ALLOW path, which is what makes an approval a permission for exactly
-    // one request rather than a second, parallel way to reach the upstream.
-    // What the human is being asked about, hashed. The four class fields say what kind of thing
-    // this is; `requestHash` says which one. Without it an approval for a benign merge is a
-    // grant for every merge on the repository, and the substitution leaves no trace.
-    const binding = {
-      missionId: mission.id,
-      agentId: claims.agentId,
-      resource: mapped.resource,
-      action: mapped.action,
-      requestHash: requestBindingHash({
-        method: request.method,
-        host: normalized.host,
-        path: normalized.path,
-        bodyHash: attempt.bodyHash,
-      }),
+    // 6 — network rules: explicit deny wins, and no rule at all is a deny (D6).
+    const network = matchNetworkRules(documents.network, {
+      host: normalized.host,
+      path: normalized.path,
+      method: request.method,
+    });
+    if (network.matched === 'deny') {
+      denied(
+        attempt,
+        'network-deny-rule',
+        `network rule ${describeRule(network.rule)} denies ${request.method} ${normalized.host}${normalized.path}`,
+      );
+    }
+    if (network.matched === 'none') {
+      denied(
+        attempt,
+        'network-default-deny',
+        `no network rule allows ${request.method} ${normalized.host}${normalized.path}`,
+      );
+    }
+
+    // 7 — what the request *is*, decided by the gateway and never by the agent (D4).
+    const adapter = deps.adapters.find(
+      (candidate) =>
+        candidate.provider === credential.provider && candidate.matchesHost(normalized.host),
+    );
+    const mapped = adapter?.mapRequest(request.method, normalized.path) ?? null;
+    if (mapped === null) {
+      denied(
+        attempt,
+        'adapter-unmapped',
+        `${request.method} ${normalized.path} maps to no known action`,
+        'agentgate_unmapped_action',
+      );
+    }
+    attempt.resource = mapped.resource;
+    attempt.action = mapped.action;
+
+    // 8 — the decision itself. Everything above is the question; the engine gives the answer.
+    const separator = mapped.resource.indexOf(':');
+    const input: PolicyInput = {
+      identity: {
+        principalId: claims.principalId,
+        agentId: claims.agentId,
+        agentType: claims.agentType,
+      },
+      mission: {
+        id: mission.id,
+        intent: mission.intent,
+        permissions: documents.permissions,
+        network: documents.network,
+        expiresAt: mission.expiresAt.toISOString(),
+      },
+      resource: {
+        provider: mapped.resource.slice(0, separator),
+        id: mapped.resource.slice(separator + 1),
+      },
+      action: { type: mapped.action, method: request.method.toUpperCase() },
+      // The alias, already checked against the mission at step 5a. Passed on so a rule can be
+      // written about which key an action is taken with — "merge, but not with the release
+      // credential" — rather than only about the action itself.
+      credentialAlias: credential.alias,
+      network: { host: normalized.host, path: normalized.path },
+      environment: { name: mission.environment },
+      currentState: { requestCount: slot.usage.requestCount, bytesTotal: slot.usage.bytesTotal },
+      data: {
+        ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
+        bodySize: attempt.bodySize ?? 0,
+        ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
+      },
     };
 
-    if (request.approvalId !== undefined) {
-      const outcome = await deps.approvals.tryConsume(request.approvalId, binding);
+    // Recorded before the verdict, so a policy engine that throws still leaves the trail saying
+    // what it was asked. `PolicyInput` is already free of headers, bodies and credentials (D10) —
+    // the mission documents in it are admin-authored scope, which is the thing an operator
+    // reading a decision a week later most needs to see as it was at the time.
+    attempt.policyInputSnapshot = input;
 
-      if (outcome !== 'consumed') {
-        // No new pending record here. A failed consume is an agent holding something it cannot
-        // use; answering it by queueing a fresh question for a human turns a refusal into a
-        // retry loop that costs somebody attention.
-        denied(attempt, CONSUME_POLICY[outcome], consumeRefusal(outcome, request.approvalId));
-      }
+    const verdict = await deps.engine.evaluate(input);
+    if (verdict.matchedPolicy !== undefined) {
+      attempt.matchedPolicy = verdict.matchedPolicy;
+    }
 
-      attempt.matchedPolicy = 'approval-grant';
-      reason = `approval ${request.approvalId} consumed`;
-    } else {
-      const { approvalId } = await deps.approvals.createPending({
-        ...binding,
-        reason: verdict.reason,
-        requestSummary: {
+    // What the trail records as the reason this attempt ended the way it did. The engine's own
+    // wording, unless a grant is what let the request through — an ALLOW row reading "requires
+    // human approval" describes the rule, not the decision that was actually made.
+    let reason = verdict.reason;
+
+    if (verdict.decision === 'DENY') {
+      throw new AgentGateError('agentgate_access_denied', 403, verdict.reason, {
+        decision: 'DENY',
+      });
+    }
+
+    if (verdict.decision === 'REQUIRE_APPROVAL') {
+      // D7, and the only thing this step does: turn "a human must say yes" into either a grant
+      // being spent or a question being asked. Everything below is untouched — a consumed grant
+      // continues down the ALLOW path, which is what makes an approval a permission for exactly
+      // one request rather than a second, parallel way to reach the upstream.
+      // What the human is being asked about, hashed. The four class fields say what kind of thing
+      // this is; `requestHash` says which one. Without it an approval for a benign merge is a
+      // grant for every merge on the repository, and the substitution leaves no trace.
+      const binding = {
+        missionId: mission.id,
+        agentId: claims.agentId,
+        resource: mapped.resource,
+        action: mapped.action,
+        requestHash: requestBindingHash({
           method: request.method,
           host: normalized.host,
           path: normalized.path,
-          ...(attempt.bodySize === undefined ? {} : { bodySize: attempt.bodySize }),
-          // The hash the grant is pinned to, shown next to the rest. A human deciding cannot
-          // read a body they are not given, but an operator asking later whether the request
-          // that was made is the request that was approved can compare two hex strings.
-          ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
-          ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
-        },
-      });
-      attempt.approvalId = approvalId;
+          bodyHash: attempt.bodyHash,
+        }),
+      };
 
-      throw new AgentGateError('agentgate_approval_required', 202, verdict.reason, {
-        decision: 'REQUIRE_APPROVAL',
-      });
+      if (request.approvalId !== undefined) {
+        const outcome = await deps.approvals.tryConsume(request.approvalId, binding);
+
+        if (outcome !== 'consumed') {
+          // No new pending record here. A failed consume is an agent holding something it cannot
+          // use; answering it by queueing a fresh question for a human turns a refusal into a
+          // retry loop that costs somebody attention.
+          denied(attempt, CONSUME_POLICY[outcome], consumeRefusal(outcome, request.approvalId));
+        }
+
+        attempt.matchedPolicy = 'approval-grant';
+        reason = `approval ${request.approvalId} consumed`;
+      } else {
+        const { approvalId } = await deps.approvals.createPending({
+          ...binding,
+          reason: verdict.reason,
+          requestSummary: {
+            method: request.method,
+            host: normalized.host,
+            path: normalized.path,
+            ...(attempt.bodySize === undefined ? {} : { bodySize: attempt.bodySize }),
+            // The hash the grant is pinned to, shown next to the rest. A human deciding cannot
+            // read a body they are not given, but an operator asking later whether the request
+            // that was made is the request that was approved can compare two hex strings.
+            ...(attempt.bodyHash === undefined ? {} : { bodyHash: attempt.bodyHash }),
+            ...(attempt.contentType === undefined ? {} : { contentType: attempt.contentType }),
+          },
+        });
+        attempt.approvalId = approvalId;
+
+        throw new AgentGateError('agentgate_approval_required', 202, verdict.reason, {
+          decision: 'REQUIRE_APPROVAL',
+        });
+      }
     }
-  }
 
-  // 9 — allowed, and only now does a plaintext credential exist in this process.
-  const resolved = await deps.secretStore.getByAlias(request.credential);
-  if (resolved === null) {
-    // Revoked between the metadata read and here — a narrower window than the check at step 5,
-    // and its own tag so the trail says which of the two caught it. Fail closed rather than
-    // forward unauthenticated.
-    denied(
-      attempt,
-      'credential-revoked-in-flight',
-      CREDENTIAL_REFUSAL(request.credential),
-      'agentgate_unknown_credential',
-    );
-  }
+    // 9 — allowed, and only now does a plaintext credential exist in this process.
+    const resolved = await deps.secretStore.getByAlias(request.credential);
+    if (resolved === null) {
+      // Revoked between the metadata read and here — a narrower window than the check at step 5,
+      // and its own tag so the trail says which of the two caught it. Fail closed rather than
+      // forward unauthenticated.
+      denied(
+        attempt,
+        'credential-revoked-in-flight',
+        CREDENTIAL_REFUSAL(request.credential),
+        'agentgate_unknown_credential',
+      );
+    }
 
-  const requestBytes = attempt.bodySize ?? 0;
+    // The last thing booked before the upstream is touched, and the first thing given back
+    // after: an allowance held across a policy decision or a human's attention is budget spent
+    // on nothing.
+    const allowance = await reserveResponseAllowance(deps.prisma, mission.id, documents.limits);
+    if (allowance === null) {
+      outOfBytes(attempt);
+    }
+    spend.booked += allowance;
 
-  let response;
-  try {
-    response = await forward({
-      method: request.method,
-      url: request.url,
-      upstreamBaseUrl: resolved.upstreamBaseUrl,
-      headers: request.headers,
-      body: request.body,
-      injected: applyInjection(resolved.injection, resolved.value),
+    let response;
+    try {
+      response = await forward({
+        method: request.method,
+        url: request.url,
+        upstreamBaseUrl: resolved.upstreamBaseUrl,
+        headers: request.headers,
+        body: request.body,
+        injected: applyInjection(resolved.injection, resolved.value),
+        requestId: attempt.requestId,
+        // What the reservation bought, and never a number derived from a counter read before
+        // it: a stale remaining budget is how several requests in flight at once each got an
+        // allowance the mission could only afford once.
+        maxResponseBytes: allowance,
+      });
+    } catch (error) {
+      // The bytes crossed the network before the gateway stopped reading, so the mission pays
+      // for them. A request that fails halfway through is not a free one — and a request that
+      // never got an answer at all pays nothing, which is what leaving `spend.used` at zero
+      // says. Either way the reservation is settled by the `finally` above.
+      if (error instanceof UpstreamResponseTooLarge) {
+        spend.used = requestBytes + error.bytesRead;
+      }
+
+      throw error;
+    }
+
+    spend.used = requestBytes + response.responseBytes;
+
+    return {
+      status: response.status,
+      headers: response.headers,
+      body: response.body,
       requestId: attempt.requestId,
-      maxResponseBytes: responseAllowance(slot.usage, documents.limits, requestBytes),
-    });
-  } catch (error) {
-    // The bytes crossed the network before the gateway stopped reading, so the mission pays for
-    // them. A request that fails halfway through is not a free one.
-    if (error instanceof UpstreamResponseTooLarge) {
-      await recordBytes(deps.prisma, mission.id, requestBytes + error.bytesRead);
-    }
-
-    throw error;
+      decision: 'ALLOW',
+      reason,
+    };
+  } finally {
+    await releaseBytes(deps.prisma, mission.id, spend.booked - spend.used);
   }
-
-  await recordBytes(deps.prisma, mission.id, requestBytes + response.responseBytes);
-
-  return {
-    status: response.status,
-    headers: response.headers,
-    body: response.body,
-    requestId: attempt.requestId,
-    decision: 'ALLOW',
-    reason,
-  };
 }
 
 /**
