@@ -45,6 +45,11 @@ db-reset: require-env ## Drop and rebuild both databases from scratch, and re-se
 test: require-env dev-db db-migrate ## Run every workspace test suite, leak scan included
 	@# The leak scan is one of these suites (tests/security), not a step after them: a check that
 	@# only runs when somebody remembers to run it is a check the next contributor will not.
+	@#
+	@# One suite at a time. apps/gateway/test/management-stats.test.ts asserts on counters the
+	@# management API reports globally, so a second suite writing to the same database while it
+	@# runs turns three of its tests red for a reason that has nothing to do with the code.
+	@# Everything else is scoped per run and does not care who else is there.
 	pnpm -r test
 
 leak-scan: require-env ## Run the demo and prove the upstream token reached nothing it should not

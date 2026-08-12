@@ -84,6 +84,8 @@ One warning about `make db-reset`, because it will look broken otherwise. It cal
 
 `make test` starts Postgres through compose before it runs anything, so on a machine without a Docker daemon it stops at the first line. Bring your own Postgres, point `DATABASE_URL_TEST` and `DATABASE_URL_DEMO` at it, then `make db-migrate && pnpm -r test` gets you the same suites.
 
+Run one at a time. `apps/gateway/test/management-stats.test.ts` asserts on counters the management API reports globally, so a second suite writing to the same database while it runs turns three of its tests red for a reason that has nothing to do with the code. Everything else is scoped per run and two suites can share a database without noticing each other.
+
 CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml): types and formatting, `opa test` and `opa check --strict`, every suite against a real Postgres, the parity suites against a live OPA with a hard failure if either package skipped a single test, and the compose demo followed by a leak scan that reads the container logs.
 
 ---
